@@ -291,8 +291,8 @@ body.is-resizing .resize-handle::before {
   border-bottom: 1px solid #eaeef2;
   cursor: pointer;
   overflow: hidden;
-  transition: background 0.1s;
-  border-left: 2px solid transparent;
+  position: relative;
+  transition: background 0.15s;
 }
 
 .request-item:hover {
@@ -301,7 +301,24 @@ body.is-resizing .resize-handle::before {
 
 .request-item.is-active {
   background: #eef6ff;
-  border-left-color: #0969da;
+}
+
+/* 滑动导航条 — 挂在 request-list 上，绝对定位跟随激活项 */
+.request-list {
+  position: relative;
+}
+
+.request-list-indicator {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: #0969da;
+  pointer-events: none;
+  transition: top 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.15s;
+  z-index: 1;
 }
 
 .request-item-main {
@@ -519,6 +536,46 @@ body.is-resizing .resize-handle::before {
   background: #0969da;
   color: #ffffff;
   outline: 1px solid #6cb6ff;
+}
+
+.search-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #57606a;
+  font-size: 11px;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.search-toggle-button svg {
+  display: block;
+}
+
+.search-toggle-button:hover {
+  background: #eaeef2;
+  border-color: #c9d1d9;
+  color: #1f2328;
+}
+
+.search-toggle-button.is-active {
+  background: #ddf4ff;
+  border-color: #0969da;
+  color: #0969da;
+}
+
+.search-count--error {
+  color: #cf222e;
 }
 
 .toast {

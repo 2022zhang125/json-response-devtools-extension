@@ -11,6 +11,10 @@ const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const toastEl = document.getElementById("toast");
 
+const searchCaseSensitiveBtn = document.getElementById("searchCaseSensitiveBtn");
+const searchWholeWordBtn = document.getElementById("searchWholeWordBtn");
+const searchRegexBtn = document.getElementById("searchRegexBtn");
+
 const requests = [];
 
 let activeRequest = null;
@@ -21,6 +25,9 @@ let activeProcessedData = null;
 let searchText = "";
 let searchMatches = [];
 let currentMatchIndex = -1;
+let searchCaseSensitive = false;
+let searchWholeWord = false;
+let searchUseRegex = false;
 
 let sidebarWidth =
   Number(localStorage.getItem(CONFIG.STORAGE_KEYS.SIDEBAR_WIDTH)) || 320;
@@ -32,6 +39,7 @@ setupSidebarResize();
 setupSidebarCollapse();
 updateSearchButtons();
 setupClearRequests();
+setupSearchToggleButtons();
 
 const port = chrome.runtime.connect({
   name: "json-response-panel",
@@ -57,59 +65,108 @@ port.onMessage.addListener((message) => {
   }
 });
 
+// Sliding indicator bar
+const indicatorEl = document.createElement("div");
+indicatorEl.className = "request-list-indicator";
+indicatorEl.style.opacity = "0";
+requestListEl.appendChild(indicatorEl);
+
+function moveIndicatorTo(itemEl) {
+  if (!itemEl) {
+    indicatorEl.style.opacity = "0";
+    return;
+  }
+  indicatorEl.style.opacity = "1";
+  indicatorEl.style.top = `${itemEl.offsetTop}px`;
+  indicatorEl.style.height = `${itemEl.offsetHeight}px`;
+}
+
 function renderRequestList() {
-  requestListEl.replaceChildren();
+  const existingItems = new Map();
+  for (const el of requestListEl.children) {
+    if (el.__request) existingItems.set(el.__request, el);
+  }
 
-  requests.forEach((request) => {
-    const item = document.createElement("div");
-    item.className = `request-item ${
-      request === activeRequest ? "is-active" : ""
-    }`;
+  const toRemove = new Set(existingItems.keys());
 
-    const main = document.createElement("div");
-    main.className = "request-item-main";
+  requests.forEach((request, index) => {
+    toRemove.delete(request);
 
-    const requestApiPath = getRequestName(request.url);
+    let item = existingItems.get(request);
 
-    const name = document.createElement("div");
-    name.className = "request-name";
-    name.textContent = requestApiPath;
-    name.title = `Open Swagger and search ${requestApiPath}`;
+    if (!item) {
+      item = buildRequestItem(request);
+      item.style.animationDelay = `${Math.min(index * 18, 120)}ms`;
+      item.classList.add("request-item--enter");
+      requestListEl.appendChild(item);
+    }
 
-    name.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openSwaggerAndSearch(requestApiPath, request.url);
-    });
+    item.classList.toggle("is-active", request === activeRequest);  });
 
-    const time = document.createElement("span");
-    time.className = "request-time";
-    time.textContent = request.relativeTimeText || "";
-    time.title = request.createdAt
-      ? new Date(request.createdAt).toLocaleString()
-      : "";
+  for (const req of toRemove) {
+    existingItems.get(req)?.remove();
+  }
 
-    const status = document.createElement("span");
-    status.className = `request-status ${getStatusClass(request.status)}`;
-    status.textContent = request.status || "-";
-    status.title = `${request.status || "-"} ${request.statusText || ""}`;
+  // Sync indicator to current active item (handles init & restore)
+  const activeEl = [...requestListEl.children].find(
+    (el) => el.__request === activeRequest,
+  );
+  moveIndicatorTo(activeEl || null);
+}
 
-    const url = document.createElement("div");
-    url.className = "request-url";
-    url.textContent = request.url;
-    url.title = request.url;
+function buildRequestItem(request) {
+  const item = document.createElement("div");
+  item.className = "request-item";
+  item.__request = request;
 
-    main.append(name, time, status);
-    item.append(main, url);
+  const main = document.createElement("div");
+  main.className = "request-item-main";
 
-    item.addEventListener("click", () => {
-      activeRequest = request;
-      renderRequestList();
-      loadRequestContent(request);
-    });
+  const requestApiPath = getRequestName(request.url);
 
-    requestListEl.appendChild(item);
+  const name = document.createElement("div");
+  name.className = "request-name";
+  name.textContent = requestApiPath;
+  name.title = `Open Swagger and search ${requestApiPath}`;
+
+  name.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openSwaggerAndSearch(requestApiPath, request.url);
   });
+
+  const time = document.createElement("span");
+  time.className = "request-time";
+  time.textContent = request.relativeTimeText || "";
+  time.title = request.createdAt
+    ? new Date(request.createdAt).toLocaleString()
+    : "";
+
+  const status = document.createElement("span");
+  status.className = `request-status ${getStatusClass(request.status)}`;
+  status.textContent = request.status || "-";
+  status.title = `${request.status || "-"} ${request.statusText || ""}`;
+
+  const url = document.createElement("div");
+  url.className = "request-url";
+  url.textContent = request.url;
+  url.title = request.url;
+
+  main.append(name, time, status);
+  item.append(main, url);
+
+  item.addEventListener("click", () => {
+    if (activeRequest === request) return;
+    activeRequest = request;
+    for (const el of requestListEl.children) {
+      if (el === indicatorEl) continue;
+      el.classList.toggle("is-active", el.__request === request);
+    }
+    moveIndicatorTo(item);
+    loadRequestContent(request);
+  });
+
+  return item;
 }
 
 function loadRequestContent(request) {
@@ -364,47 +421,63 @@ function createHighlightedSpan(className, text) {
 }
 
 function appendHighlightedText(element, text) {
-  const normalizedSearchText = searchText.trim();
+  const query = searchText.trim();
 
-  if (!normalizedSearchText) {
+  if (!query) {
     element.textContent = text;
     return;
   }
 
-  const lowerText = text.toLowerCase();
-  const lowerSearchText = normalizedSearchText.toLowerCase();
+  const regex = buildSearchRegex(query);
 
-  let startIndex = 0;
-  let matchIndex = lowerText.indexOf(lowerSearchText, startIndex);
-
-  if (matchIndex === -1) {
+  if (!regex) {
     element.textContent = text;
     return;
   }
 
-  while (matchIndex !== -1) {
-    if (matchIndex > startIndex) {
-      element.appendChild(
-        document.createTextNode(text.slice(startIndex, matchIndex)),
-      );
+  const matches = [...text.matchAll(regex)];
+
+  if (matches.length === 0) {
+    element.textContent = text;
+    return;
+  }
+
+  let lastIndex = 0;
+
+  for (const match of matches) {
+    const start = match.index;
+    const end = start + match[0].length;
+
+    if (start > lastIndex) {
+      element.appendChild(document.createTextNode(text.slice(lastIndex, start)));
     }
 
     const mark = document.createElement("mark");
     mark.className = "json-search-mark";
-    mark.textContent = text.slice(
-      matchIndex,
-      matchIndex + normalizedSearchText.length,
-    );
+    mark.textContent = text.slice(start, end);
     element.appendChild(mark);
-
     searchMatches.push(mark);
 
-    startIndex = matchIndex + normalizedSearchText.length;
-    matchIndex = lowerText.indexOf(lowerSearchText, startIndex);
+    lastIndex = end;
   }
 
-  if (startIndex < text.length) {
-    element.appendChild(document.createTextNode(text.slice(startIndex)));
+  if (lastIndex < text.length) {
+    element.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
+}
+
+function buildSearchRegex(query) {
+  try {
+    let pattern = searchUseRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    if (searchWholeWord) {
+      pattern = `\\b${pattern}\\b`;
+    }
+
+    const flags = "g" + (searchCaseSensitive ? "" : "i");
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
   }
 }
 
@@ -414,19 +487,28 @@ function setHighlightedText(element, text) {
 }
 
 function updateSearchCount() {
-  if (!searchText.trim()) {
+  const query = searchText.trim();
+
+  if (!query) {
     searchCountEl.textContent = "";
+    searchCountEl.classList.remove("search-count--error");
     return;
   }
+
+  if (searchUseRegex && !buildSearchRegex(query)) {
+    searchCountEl.textContent = "无效正则";
+    searchCountEl.classList.add("search-count--error");
+    return;
+  }
+
+  searchCountEl.classList.remove("search-count--error");
 
   if (searchMatches.length === 0) {
     searchCountEl.textContent = "0 / 0";
     return;
   }
 
-  searchCountEl.textContent = `${currentMatchIndex + 1} / ${
-    searchMatches.length
-  }`;
+  searchCountEl.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
 }
 
 function normalizeCurrentMatchIndex() {
@@ -939,4 +1021,59 @@ function getDecryptKeys() {
     localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ALGORITHM) || "SM4";
   if (key) return [{ algorithm, key }];
   return [];
+}
+
+// ── Search toggle buttons ─────────────────────────────────────────────────────
+
+function setupSearchToggleButtons() {
+  function applyToggle(btn, getter, setter) {
+    btn.classList.toggle("is-active", getter());
+    btn.addEventListener("click", () => {
+      setter(!getter());
+      btn.classList.toggle("is-active", getter());
+      triggerSearchRerender();
+    });
+  }
+
+  applyToggle(
+    searchCaseSensitiveBtn,
+    () => searchCaseSensitive,
+    (v) => { searchCaseSensitive = v; },
+  );
+
+  applyToggle(
+    searchWholeWordBtn,
+    () => searchWholeWord,
+    (v) => { searchWholeWord = v; },
+  );
+
+  applyToggle(
+    searchRegexBtn,
+    () => searchUseRegex,
+    (v) => { searchUseRegex = v; },
+  );
+
+  // Alt+C / Alt+W / Alt+R shortcuts (matches VSCode)
+  document.addEventListener("keydown", (event) => {
+    if (!event.altKey) return;
+    const key = event.key.toLowerCase();
+
+    if (key === "c") {
+      event.preventDefault();
+      searchCaseSensitiveBtn.click();
+    } else if (key === "w") {
+      event.preventDefault();
+      searchWholeWordBtn.click();
+    } else if (key === "r") {
+      event.preventDefault();
+      searchRegexBtn.click();
+    }
+  }, true);
+}
+
+function triggerSearchRerender() {
+  currentMatchIndex = 0;
+  if (activeProcessedData) {
+    renderJson(activeProcessedData);
+  }
 }
