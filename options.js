@@ -4,9 +4,16 @@ const apiPrefixInputEl = document.getElementById("apiPrefixInput");
 const saveSwaggerBaseBtn = document.getElementById("saveSwaggerBase");
 const saveSwaggerSuffixBtn = document.getElementById("saveSwaggerSuffix");
 const saveApiPrefixBtn = document.getElementById("saveApiPrefix");
+const decryptEnabledEl = document.getElementById("decryptEnabled");
+const decryptOptionsEl = document.getElementById("decryptOptions");
+const decryptAlgorithmEl = document.getElementById("decryptAlgorithm");
+const decryptKeyEl = document.getElementById("decryptKey");
+const decryptFieldEl = document.getElementById("decryptField");
+const saveDecryptBtn = document.getElementById("saveDecryptSettings");
 const toastEl = document.getElementById("toast");
 
-// Load saved values, falling back to CONFIG defaults
+// ── Swagger settings ──────────────────────────────────────────────────────────
+
 swaggerBaseInputEl.value =
   localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_BASE) || "";
 
@@ -59,7 +66,6 @@ saveApiPrefixBtn.addEventListener("click", () => {
   showToast("已保存");
 });
 
-// Enter key to save for single-line inputs
 [
   [swaggerBaseInputEl, saveSwaggerBaseBtn],
   [swaggerSuffixInputEl, saveSwaggerSuffixBtn],
@@ -71,6 +77,57 @@ saveApiPrefixBtn.addEventListener("click", () => {
     }
   });
 });
+
+// ── Decrypt settings ──────────────────────────────────────────────────────────
+
+const decryptEnabled =
+  localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true";
+decryptEnabledEl.checked = decryptEnabled;
+decryptOptionsEl.classList.toggle("decrypt-options--hidden", !decryptEnabled);
+
+decryptAlgorithmEl.value =
+  localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ALGORITHM) || "SM4";
+
+decryptKeyEl.value =
+  localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_KEY) || "";
+
+decryptFieldEl.value =
+  localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD) || "data";
+
+decryptEnabledEl.addEventListener("change", () => {
+  const enabled = decryptEnabledEl.checked;
+  localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED, String(enabled));
+  decryptOptionsEl.classList.toggle("decrypt-options--hidden", !enabled);
+});
+
+decryptAlgorithmEl.addEventListener("change", () => {
+  localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_ALGORITHM, decryptAlgorithmEl.value);
+});
+
+saveDecryptBtn.addEventListener("click", () => {
+  const key = decryptKeyEl.value.trim();
+  const field = decryptFieldEl.value.trim() || "data";
+
+  if (!key) {
+    showToast("请输入密钥");
+    decryptKeyEl.focus();
+    return;
+  }
+
+  localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_KEY, key);
+  localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD, field);
+  showToast("解密配置已保存");
+});
+
+decryptKeyEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); saveDecryptBtn.click(); }
+});
+
+decryptFieldEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); saveDecryptBtn.click(); }
+});
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
 
 function showToast(message) {
   toastEl.textContent = message;

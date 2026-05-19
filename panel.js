@@ -116,7 +116,8 @@ function loadRequestContent(request) {
 
   try {
     activeJsonData = JSON.parse(activeJsonText);
-    renderJson(activeJsonData);
+    const processed = tryDecryptFields(activeJsonData);
+    renderJson(processed);
   } catch (error) {
     activeJsonData = null;
     jsonViewerEl.replaceChildren();
@@ -249,13 +250,29 @@ function createKeyElement(key) {
     return null;
   }
 
-  const keyElement = createHighlightedSpan("json-key", `"${key}"`);
-  keyElement.title = "Double-click to copy key";
+  const isDecrypted = key.startsWith("__dec__");
+  const displayKey = isDecrypted ? key.slice(7) : key;
+
+  const keyElement = createHighlightedSpan(
+    isDecrypted ? "json-key json-key--decrypted" : "json-key",
+    `"${displayKey}"`,
+  );
+  keyElement.title = isDecrypted
+    ? "已解密 — Double-click to copy key"
+    : "Double-click to copy key";
+
+  if (isDecrypted) {
+    const badge = document.createElement("span");
+    badge.className = "json-decrypt-badge";
+    badge.textContent = "🔓";
+    badge.title = "此字段已自动解密";
+    keyElement.appendChild(badge);
+  }
 
   keyElement.addEventListener("dblclick", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    copyText(key, "Key copied");
+    copyText(displayKey, "Key copied");
   });
 
   return keyElement;
@@ -804,4 +821,58 @@ function buildSwaggerUrl(baseUrl, apiPath) {
     CONFIG.SWAGGER_URL_SUFFIX;
 
   return `${normalizedBaseUrl}${suffix}?jsonResponseSearch=${encodedApiPath}`;
+}
+
+// ── Decrypt helpers ───────────────────────────────────────────────────────────
+
+function tryDecryptFields(data) {
+  if (!data || typeof data !== "object") return data;
+
+  const enabled =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true";
+  if (!enabled) return data;
+
+  const algorithm =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ALGORITHM) || "SM4";
+  const key = localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_KEY) || "";
+  const fieldRaw =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD) || "data";
+  const fields = fieldRaw
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean);
+
+  if (!key || fields.length === 0) return data;
+
+  return decryptObjectFields(data, fields, algorithm, key);
+}
+
+function decryptObjectFields(obj, fields, algorithm, key) {
+  if (Array.isArray(obj)) {
+    return obj.map((item) => decryptObjectFields(item, fields, algorithm, key));
+  }
+
+  if (obj !== null && typeof obj === "object") {
+    const result = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (fields.includes(k) && typeof v === "string" && v.length > 0) {
+        const decrypted = DECRYPTOR.decrypt(v, algorithm, key);
+        if (decrypted) {
+          try {
+            // prefix with __dec__ so the key renderer can add the unlock badge
+            result[`__dec__${k}`] = JSON.parse(decrypted);
+          } catch {
+            result[`__dec__${k}`] = decrypted;
+          }
+        } else {
+          result[k] = v;
+        }
+      } else {
+        result[k] = decryptObjectFields(v, fields, algorithm, key);
+      }
+    }
+    return result;
+  }
+
+  return obj;
 }

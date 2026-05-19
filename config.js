@@ -15,5 +15,9 @@ const CONFIG = {
     API_PREFIX_STRIP: "json-response-api-prefix-strip",
     SIDEBAR_WIDTH: "json-response-sidebar-width",
     SIDEBAR_COLLAPSED: "json-response-sidebar-collapsed",
+    DECRYPT_ENABLED: "json-response-decrypt-enabled",
+    DECRYPT_ALGORITHM: "json-response-decrypt-algorithm",
+    DECRYPT_KEY: "json-response-decrypt-key",
+    DECRYPT_FIELD: "json-response-decrypt-field",
   },
 };

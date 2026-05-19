@@ -67,6 +67,67 @@
             </div>
           </div>
         </section>
+
+        <section class="settings-section">
+          <h2 class="section-title">响应解密</h2>
+
+          <div class="setting-item">
+            <div class="setting-row setting-row--between">
+              <div>
+                <span class="setting-label">启用解密</span>
+                <p class="setting-desc">
+                  自动解密 JSON 响应中指定字段的加密值，并在面板中以树形展示解密后内容
+                </p>
+              </div>
+              <label class="toggle" title="启用或禁用响应解密">
+                <input type="checkbox" id="decryptEnabled" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div id="decryptOptions">
+            <div class="setting-item">
+              <label class="setting-label" for="decryptAlgorithm">加密算法</label>
+              <p class="setting-desc">选择服务端使用的加密算法，须与后端保持一致</p>
+              <select id="decryptAlgorithm" class="setting-select">
+                <option value="SM4">SM4（国密）</option>
+                <option value="AES">AES-128 ECB</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label class="setting-label" for="decryptKey">密钥</label>
+              <p class="setting-desc">16 位字符串密钥，须与服务端完全一致</p>
+              <div class="setting-row">
+                <input
+                  id="decryptKey"
+                  class="setting-input"
+                  maxlength="32"
+                  placeholder="输入 16 位密钥"
+                  type="password"
+                  autocomplete="off"
+                />
+                <button id="saveDecryptSettings" class="save-button">保存</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <label class="setting-label" for="decryptField">目标字段名</label>
+              <p class="setting-desc">
+                需要解密的 JSON 字段名，默认为 <code>data</code>；
+                多个字段用英文逗号分隔，例如 <code>data,result</code>
+              </p>
+              <div class="setting-row">
+                <input
+                  id="decryptField"
+                  class="setting-input"
+                  placeholder="data"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 

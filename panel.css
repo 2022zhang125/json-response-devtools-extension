@@ -574,3 +574,15 @@ body.is-resizing .resize-handle::before {
   border-color: #ffb4ab;
   color: #cf222e;
 }
+
+.json-key--decrypted {
+  color: #0969da;
+}
+
+.json-decrypt-badge {
+  margin-left: 4px;
+  font-style: normal;
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
