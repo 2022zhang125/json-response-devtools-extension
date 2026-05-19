@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="app">
+      <div class="toolbar">
+        <input id="searchInput" class="search-input" placeholder="Search response" />
+        <span id="searchCount" class="search-count"></span>
+        <button id="prevBtn" class="toolbar-button">↑</button>
+        <button id="nextBtn" class="toolbar-button">↓</button>
+      </div>
+
+      <div class="layout">
+        <div class="request-list">
+          <div class="request-list-title">Requests</div>
+          <div id="requestList"></div>
+        </div>
+
+        <div id="jsonViewer" class="json-viewer">
+          <div class="empty">Select a JSON request from the left.</div>
+        </div>
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
+    </div>
+
+    <script src="panel.js"></script>
+  </body>
+</html>

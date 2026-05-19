@@ -1,0 +1,262 @@
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  background: #ffffff;
+  color: #1f2328;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.toolbar {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #d8dee4;
+  background: #f6f8fa;
+  box-sizing: border-box;
+}
+
+.search-input {
+  width: 220px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #c9d1d9;
+  border-radius: 4px;
+  outline: none;
+  background: #ffffff;
+  color: #1f2328;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.search-input:focus {
+  border-color: #0969da;
+  box-shadow: 0 0 0 1px rgba(9, 105, 218, 0.18);
+}
+
+.search-count {
+  min-width: 70px;
+  color: #6b7280;
+  font-size: 12px;
+  text-align: right;
+  user-select: none;
+}
+
+.toolbar-button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #c9d1d9;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #24292f;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toolbar-button:hover {
+  background: #f3f4f6;
+}
+
+.toolbar-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+}
+
+.request-list {
+  min-width: 0;
+  border-right: 1px solid #d8dee4;
+  background: #f6f8fa;
+  overflow: auto;
+}
+
+.request-list-title {
+  padding: 8px 10px;
+  border-bottom: 1px solid #d8dee4;
+  color: #6b7280;
+  font-size: 12px;
+  user-select: none;
+}
+
+.request-item {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.request-item:hover {
+  background: #eef6ff;
+}
+
+.request-item.is-active {
+  background: #ddf4ff;
+}
+
+.request-name {
+  overflow: hidden;
+  color: #1f2328;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-url {
+  overflow: hidden;
+  margin-top: 3px;
+  color: #6b7280;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.json-viewer {
+  min-width: 0;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.empty {
+  padding: 16px;
+  color: #6b7280;
+}
+
+.json-tree-root {
+  padding: 10px 16px 22px;
+  line-height: 22px;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.json-tree-children {
+  margin-left: 18px;
+  padding-left: 12px;
+  border-left: 1px solid #e5e7eb;
+}
+
+.json-tree-line {
+  display: flex;
+  align-items: baseline;
+  min-height: 22px;
+}
+
+.json-tree-line:hover {
+  background: rgba(9, 105, 218, 0.05);
+}
+
+.json-tree-toggle {
+  width: 16px;
+  height: 20px;
+  margin-right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.json-tree-toggle-placeholder {
+  width: 18px;
+  flex: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.json-key {
+  color: #881391;
+  cursor: copy;
+}
+
+.json-string {
+  color: #0b7500;
+  cursor: copy;
+}
+
+.json-number {
+  color: #1a56db;
+  cursor: copy;
+}
+
+.json-boolean {
+  color: #aa0d91;
+  cursor: copy;
+}
+
+.json-null {
+  color: #aa0d91;
+  font-style: italic;
+  cursor: copy;
+}
+
+.json-punctuation {
+  color: #24292f;
+}
+
+.json-summary {
+  margin-left: 6px;
+  color: #6b7280;
+  font-style: italic;
+  cursor: copy;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.json-url {
+  color: #0969da;
+  text-decoration: underline;
+}
+
+.json-search-mark {
+  border-radius: 2px;
+  background: #fff3b0;
+  color: #24292f;
+}
+
+.json-search-mark.is-current {
+  background: #0969da;
+  color: #ffffff;
+  outline: 1px solid #6cb6ff;
+}
+
+.toast {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  padding: 6px 10px;
+  border: 1px solid #c9d1d9;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #1f2328;
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgba(31, 35, 40, 0.12);
+  pointer-events: none;
+}
+
+.hidden {
+  display: none;
+}
