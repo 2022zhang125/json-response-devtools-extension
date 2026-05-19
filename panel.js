@@ -5,7 +5,11 @@ const resizeHandleEl = document.getElementById("resizeHandle");
 const collapseSidebarBtn = document.getElementById("collapseSidebarBtn");
 const expandSidebarBtn = document.getElementById("expandSidebarBtn");
 const clearRequestsBtn = document.getElementById("clearRequestsBtn");
+const swaggerBaseInputEl = document.getElementById("swaggerBaseInput");
+const saveSwaggerBaseBtn = document.getElementById("saveSwaggerBaseBtn");
 
+const SWAGGER_BASE_STORAGE_KEY = "json-response-swagger-base-url";
+const DEFAULT_SWAGGER_PREFIX = "/loancrm-admin/doc.html#/home";
 const jsonViewerEl = document.getElementById("jsonViewer");
 const searchInputEl = document.getElementById("searchInput");
 const searchCountEl = document.getElementById("searchCount");
@@ -36,6 +40,7 @@ setupSidebarResize();
 setupSidebarCollapse();
 updateSearchButtons();
 setupClearRequests();
+setupSwaggerBase();
 
 const port = chrome.runtime.connect({
   name: "json-response-panel",
@@ -73,10 +78,18 @@ function renderRequestList() {
     const main = document.createElement("div");
     main.className = "request-item-main";
 
+    const requestApiPath = getRequestName(request.url);
+
     const name = document.createElement("div");
     name.className = "request-name";
-    name.textContent = getRequestName(request.url);
-    name.title = getRequestName(request.url);
+    name.textContent = requestApiPath;
+    name.title = `Open Swagger and search ${requestApiPath}`;
+
+    name.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openSwaggerAndSearch(requestApiPath);
+    });
 
     const time = document.createElement("span");
     time.className = "request-time";
@@ -760,4 +773,67 @@ function clearRequestsLocal() {
   updateSearchButtons();
 
   showToast("Requests cleared");
+}
+
+function setupSwaggerBase() {
+  const savedBaseUrl = localStorage.getItem(SWAGGER_BASE_STORAGE_KEY) || "";
+  swaggerBaseInputEl.value = savedBaseUrl;
+
+  saveSwaggerBaseBtn.addEventListener("click", () => {
+    saveSwaggerBaseUrl();
+  });
+
+  swaggerBaseInputEl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveSwaggerBaseUrl();
+    }
+  });
+}
+
+function saveSwaggerBaseUrl() {
+  const value = swaggerBaseInputEl.value.trim();
+
+  if (!value) {
+    localStorage.removeItem(SWAGGER_BASE_STORAGE_KEY);
+    showToast("Swagger address cleared");
+    return;
+  }
+
+  localStorage.setItem(SWAGGER_BASE_STORAGE_KEY, value);
+  showToast("Swagger address saved");
+}
+
+function openSwaggerAndSearch(apiPath) {
+  const swaggerBaseUrl = swaggerBaseInputEl.value.trim();
+
+  if (!swaggerBaseUrl) {
+    showToast("Please enter Swagger address first");
+    swaggerBaseInputEl.focus();
+    return;
+  }
+
+  localStorage.setItem(SWAGGER_BASE_STORAGE_KEY, swaggerBaseUrl);
+
+  const swaggerUrl = buildSwaggerUrl(swaggerBaseUrl, apiPath);
+
+  navigator.clipboard
+    .writeText(apiPath)
+    .catch(() => {
+      // ignore clipboard failure
+    })
+    .finally(() => {
+      chrome.tabs.create({
+        url: swaggerUrl,
+      });
+
+      showToast(`Opening Swagger: ${apiPath}`);
+    });
+}
+
+function buildSwaggerUrl(baseUrl, apiPath) {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const encodedApiPath = encodeURIComponent(apiPath);
+
+  return `${normalizedBaseUrl}${DEFAULT_SWAGGER_PREFIX}?jsonResponseSearch=${encodedApiPath}`;
 }

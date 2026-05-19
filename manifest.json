@@ -4,5 +4,13 @@
   "version": "1.0.0",
   "description": "A JetBrains-style JSON response viewer for Chrome DevTools.",
   "devtools_page": "devtools.html",
-  "permissions": []
+  "permissions": ["tabs", "scripting", "clipboardWrite"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["swagger-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }
