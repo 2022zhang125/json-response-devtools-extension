@@ -128,7 +128,7 @@ function getRelativeTimeText(createdAt) {
 
 chrome.devtools.panels.create(
   "JSON Response",
-  "",
+  "json-response-devtools-icon-512.png",
   "panel.html",
   function () {},
 );

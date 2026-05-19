@@ -106,6 +106,30 @@ body {
   cursor: not-allowed;
 }
 
+.save-button {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid #0969da;
+  border-radius: 6px;
+  background: #0969da;
+  color: #ffffff;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.save-button:hover {
+  background: #0550ae;
+  border-color: #0550ae;
+}
+
+.save-button:active {
+  background: #033d8b;
+  border-color: #033d8b;
+}
+
 .layout {
   flex: 1;
   min-height: 0;
@@ -288,42 +312,11 @@ body.is-resizing .resize-handle::before {
   gap: 8px;
 }
 
-.swagger-toolbar {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
 .response-search-toolbar {
   flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.swagger-input {
-  width: min(460px, 100%);
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid #c9d1d9;
-  border-radius: 6px;
-  outline: none;
-  background: #ffffff;
-  color: #1f2328;
-  font-size: 12px;
-  font-family: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.swagger-input::placeholder {
-  color: #8c959f;
-}
-
-.swagger-input:focus {
-  border-color: #0969da;
-  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.12);
 }
 
 .request-name {

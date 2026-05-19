@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Custom JSON Response Viewer — Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <img src="json-response-devtools-icon-512.png" class="page-icon" alt="" />
+        <div>
+          <h1 class="page-title">Custom JSON Response Viewer</h1>
+          <p class="page-subtitle">Settings</p>
+        </div>
+      </header>
+
+      <main class="settings">
+        <section class="settings-section">
+          <h2 class="section-title">Swagger</h2>
+
+          <div class="setting-item">
+            <label class="setting-label" for="swaggerBaseInput">服务地址</label>
+            <p class="setting-desc">
+              点击请求名称时跳转的目标服务器，例如
+              <code>http://192.168.1.9:8080</code>
+            </p>
+            <div class="setting-row">
+              <input
+                id="swaggerBaseInput"
+                class="setting-input"
+                placeholder="http://192.168.1.9:8080"
+              />
+              <button id="saveSwaggerBase" class="save-button">保存</button>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-label" for="swaggerSuffixInput">页面路径</label>
+            <p class="setting-desc">
+              拼接在服务地址后的 Swagger 路由，例如
+              <code>/xxx/doc.html#/home</code>
+            </p>
+            <div class="setting-row">
+              <input id="swaggerSuffixInput" class="setting-input" />
+              <button id="saveSwaggerSuffix" class="save-button">保存</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h2 class="section-title">API 路径</h2>
+
+          <div class="setting-item">
+            <label class="setting-label" for="apiPrefixInput">去除的路径前缀</label>
+            <p class="setting-desc">
+              请求列表显示 API 名称时自动去除这些前缀，每行一个，例如
+              <code>/loancrm-admin</code>
+            </p>
+            <textarea
+              id="apiPrefixInput"
+              class="setting-textarea"
+              rows="4"
+            ></textarea>
+            <div class="setting-actions">
+              <button id="saveApiPrefix" class="save-button">保存</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="config.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

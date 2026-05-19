@@ -1,24 +1,15 @@
 const layoutEl = document.getElementById("layout");
-const requestPanelEl = document.getElementById("requestPanel");
 const requestListEl = document.getElementById("requestList");
 const resizeHandleEl = document.getElementById("resizeHandle");
 const collapseSidebarBtn = document.getElementById("collapseSidebarBtn");
 const expandSidebarBtn = document.getElementById("expandSidebarBtn");
 const clearRequestsBtn = document.getElementById("clearRequestsBtn");
-const swaggerBaseInputEl = document.getElementById("swaggerBaseInput");
-const saveSwaggerBaseBtn = document.getElementById("saveSwaggerBaseBtn");
-
-const SWAGGER_BASE_STORAGE_KEY = "json-response-swagger-base-url";
-const DEFAULT_SWAGGER_PREFIX = "/loancrm-admin/doc.html#/home";
 const jsonViewerEl = document.getElementById("jsonViewer");
 const searchInputEl = document.getElementById("searchInput");
 const searchCountEl = document.getElementById("searchCount");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const toastEl = document.getElementById("toast");
-
-const SIDEBAR_WIDTH_STORAGE_KEY = "json-response-sidebar-width";
-const SIDEBAR_COLLAPSED_STORAGE_KEY = "json-response-sidebar-collapsed";
 
 const requests = [];
 
@@ -31,16 +22,15 @@ let searchMatches = [];
 let currentMatchIndex = -1;
 
 let sidebarWidth =
-  Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)) || 320;
+  Number(localStorage.getItem(CONFIG.STORAGE_KEYS.SIDEBAR_WIDTH)) || 320;
 let isSidebarCollapsed =
-  localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  localStorage.getItem(CONFIG.STORAGE_KEYS.SIDEBAR_COLLAPSED) === "true";
 
 applySidebarState();
 setupSidebarResize();
 setupSidebarCollapse();
 updateSearchButtons();
 setupClearRequests();
-setupSwaggerBase();
 
 const port = chrome.runtime.connect({
   name: "json-response-panel",
@@ -636,9 +626,20 @@ function normalizeApiPath(pathname) {
 
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
 
-  const removePrefixList = ["/loancrm-admin"];
+  let prefixList = CONFIG.API_PATH_PREFIX_STRIP;
+  const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.API_PREFIX_STRIP);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        prefixList = parsed;
+      }
+    } catch {
+      // use CONFIG default
+    }
+  }
 
-  for (const prefix of removePrefixList) {
+  for (const prefix of prefixList) {
     if (normalizedPath === prefix) {
       return "/";
     }
@@ -689,13 +690,13 @@ function setupSidebarCollapse() {
     }
 
     isSidebarCollapsed = true;
-    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, "true");
+    localStorage.setItem(CONFIG.STORAGE_KEYS.SIDEBAR_COLLAPSED, "true");
     applySidebarState();
   });
 
   expandSidebarBtn.addEventListener("click", () => {
     isSidebarCollapsed = false;
-    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, "false");
+    localStorage.setItem(CONFIG.STORAGE_KEYS.SIDEBAR_COLLAPSED, "false");
     applySidebarState();
   });
 }
@@ -731,7 +732,7 @@ function setupSidebarResize() {
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
 
-    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    localStorage.setItem(CONFIG.STORAGE_KEYS.SIDEBAR_WIDTH, String(sidebarWidth));
   }
 }
 
@@ -775,58 +776,22 @@ function clearRequestsLocal() {
   showToast("Requests cleared");
 }
 
-function setupSwaggerBase() {
-  const savedBaseUrl = localStorage.getItem(SWAGGER_BASE_STORAGE_KEY) || "";
-  swaggerBaseInputEl.value = savedBaseUrl;
-
-  saveSwaggerBaseBtn.addEventListener("click", () => {
-    saveSwaggerBaseUrl();
-  });
-
-  swaggerBaseInputEl.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      saveSwaggerBaseUrl();
-    }
-  });
-}
-
-function saveSwaggerBaseUrl() {
-  const value = swaggerBaseInputEl.value.trim();
-
-  if (!value) {
-    localStorage.removeItem(SWAGGER_BASE_STORAGE_KEY);
-    showToast("Swagger address cleared");
-    return;
-  }
-
-  localStorage.setItem(SWAGGER_BASE_STORAGE_KEY, value);
-  showToast("Swagger address saved");
-}
-
 function openSwaggerAndSearch(apiPath) {
-  const swaggerBaseUrl = swaggerBaseInputEl.value.trim();
+  const swaggerBaseUrl =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_BASE) || "";
 
   if (!swaggerBaseUrl) {
-    showToast("Please enter Swagger address first");
-    swaggerBaseInputEl.focus();
+    showToast("请先在设置页面配置 Swagger 地址");
     return;
   }
-
-  localStorage.setItem(SWAGGER_BASE_STORAGE_KEY, swaggerBaseUrl);
 
   const swaggerUrl = buildSwaggerUrl(swaggerBaseUrl, apiPath);
 
   navigator.clipboard
     .writeText(apiPath)
-    .catch(() => {
-      // ignore clipboard failure
-    })
+    .catch(() => {})
     .finally(() => {
-      chrome.tabs.create({
-        url: swaggerUrl,
-      });
-
+      chrome.tabs.create({ url: swaggerUrl });
       showToast(`Opening Swagger: ${apiPath}`);
     });
 }
@@ -834,6 +799,9 @@ function openSwaggerAndSearch(apiPath) {
 function buildSwaggerUrl(baseUrl, apiPath) {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
   const encodedApiPath = encodeURIComponent(apiPath);
+  const suffix =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_SUFFIX) ||
+    CONFIG.SWAGGER_URL_SUFFIX;
 
-  return `${normalizedBaseUrl}${DEFAULT_SWAGGER_PREFIX}?jsonResponseSearch=${encodedApiPath}`;
+  return `${normalizedBaseUrl}${suffix}?jsonResponseSearch=${encodedApiPath}`;
 }

@@ -3,6 +3,22 @@
   "name": "Custom JSON Response Viewer",
   "version": "1.0.0",
   "description": "A JetBrains-style JSON response viewer for Chrome DevTools.",
+  "icons": {
+    "16": "json-response-devtools-icon-512.png",
+    "48": "json-response-devtools-icon-512.png",
+    "128": "json-response-devtools-icon-512.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "json-response-devtools-icon-512.png",
+      "48": "json-response-devtools-icon-512.png",
+      "128": "json-response-devtools-icon-512.png"
+    },
+    "default_title": "Open Settings"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
   "devtools_page": "devtools.html",
   "permissions": ["tabs", "scripting", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
