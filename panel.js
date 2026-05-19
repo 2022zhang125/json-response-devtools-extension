@@ -852,7 +852,11 @@ function clearRequestsLocal() {
   currentMatchIndex = -1;
   searchInputEl.value = "";
 
-  requestListEl.replaceChildren();
+  // Remove only request items, keep indicatorEl
+  for (const el of [...requestListEl.children]) {
+    if (el.__request) el.remove();
+  }
+  moveIndicatorTo(null);
 
   jsonViewerEl.replaceChildren();
 
