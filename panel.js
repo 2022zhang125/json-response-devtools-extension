@@ -78,7 +78,7 @@ function renderRequestList() {
     name.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openSwaggerAndSearch(requestApiPath);
+      openSwaggerAndSearch(requestApiPath, request.url);
     });
 
     const time = document.createElement("span");
@@ -642,19 +642,7 @@ function normalizeApiPath(pathname) {
   }
 
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
-
-  let prefixList = CONFIG.API_PATH_PREFIX_STRIP;
-  const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.API_PREFIX_STRIP);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        prefixList = parsed;
-      }
-    } catch {
-      // use CONFIG default
-    }
-  }
+  const prefixList = getAllPrefixList();
 
   for (const prefix of prefixList) {
     if (normalizedPath === prefix) {
@@ -793,34 +781,86 @@ function clearRequestsLocal() {
   showToast("Requests cleared");
 }
 
-function openSwaggerAndSearch(apiPath) {
-  const swaggerBaseUrl =
-    localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_BASE) || "";
+function openSwaggerAndSearch(displayPath, originalUrl) {
+  const configs = getSwaggerConfigs();
 
-  if (!swaggerBaseUrl) {
+  if (configs.length === 0) {
     showToast("请先在设置页面配置 Swagger 地址");
     return;
   }
 
-  const swaggerUrl = buildSwaggerUrl(swaggerBaseUrl, apiPath);
+  let originalPathname = displayPath;
+  try {
+    originalPathname = new URL(originalUrl).pathname;
+  } catch {}
+
+  const cfg = findMatchingSwaggerConfig(originalPathname, configs);
+  const swaggerUrl = buildSwaggerUrl(cfg.base, cfg.suffix, displayPath);
 
   navigator.clipboard
-    .writeText(apiPath)
+    .writeText(displayPath)
     .catch(() => {})
     .finally(() => {
       chrome.tabs.create({ url: swaggerUrl });
-      showToast(`Opening Swagger: ${apiPath}`);
+      showToast(`Opening Swagger: ${displayPath}`);
     });
 }
 
-function buildSwaggerUrl(baseUrl, apiPath) {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+function buildSwaggerUrl(base, suffix, apiPath) {
+  const normalizedBase = base.replace(/\/+$/, "");
   const encodedApiPath = encodeURIComponent(apiPath);
+  return `${normalizedBase}${suffix}?jsonResponseSearch=${encodedApiPath}`;
+}
+
+function getSwaggerConfigs() {
+  const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_CONFIGS);
+  if (stored) {
+    try { return JSON.parse(stored); } catch {}
+  }
+  // Legacy fallback
+  const base = localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_BASE) || "";
+  if (!base) return [];
   const suffix =
     localStorage.getItem(CONFIG.STORAGE_KEYS.SWAGGER_SUFFIX) ||
     CONFIG.SWAGGER_URL_SUFFIX;
+  const prefixesRaw = localStorage.getItem(CONFIG.STORAGE_KEYS.API_PREFIX_STRIP);
+  let prefixes = CONFIG.API_PATH_PREFIX_STRIP;
+  if (prefixesRaw) { try { prefixes = JSON.parse(prefixesRaw); } catch {} }
+  return [{ id: "legacy", name: "", base, suffix, prefixes }];
+}
 
-  return `${normalizedBaseUrl}${suffix}?jsonResponseSearch=${encodedApiPath}`;
+function findMatchingSwaggerConfig(pathname, configs) {
+  let best = configs[0];
+  let bestLen = -1;
+  for (const cfg of configs) {
+    for (const prefix of (cfg.prefixes || [])) {
+      if (
+        prefix &&
+        pathname.startsWith(prefix) &&
+        prefix.length > bestLen
+      ) {
+        best = cfg;
+        bestLen = prefix.length;
+      }
+    }
+  }
+  return best;
+}
+
+function getAllPrefixList() {
+  const configs = getSwaggerConfigs();
+  const seen = new Set();
+  const list = [];
+  for (const cfg of configs) {
+    for (const p of cfg.prefixes || []) {
+      if (p && !seen.has(p)) { seen.add(p); list.push(p); }
+    }
+  }
+  // Longest prefix first for correct stripping
+  list.sort((a, b) => b.length - a.length);
+  // Fall back to CONFIG defaults if nothing configured
+  if (list.length === 0) return CONFIG.API_PATH_PREFIX_STRIP;
+  return list;
 }
 
 // ── Decrypt helpers ───────────────────────────────────────────────────────────
@@ -832,9 +872,9 @@ function tryDecryptFields(data) {
     localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true";
   if (!enabled) return data;
 
-  const algorithm =
-    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ALGORITHM) || "SM4";
-  const key = localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_KEY) || "";
+  const keys = getDecryptKeys();
+  if (keys.length === 0) return data;
+
   const fieldRaw =
     localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD) || "data";
   const fields = fieldRaw
@@ -842,24 +882,28 @@ function tryDecryptFields(data) {
     .map((f) => f.trim())
     .filter(Boolean);
 
-  if (!key || fields.length === 0) return data;
+  if (fields.length === 0) return data;
 
-  return decryptObjectFields(data, fields, algorithm, key);
+  return decryptObjectFields(data, fields, keys);
 }
 
-function decryptObjectFields(obj, fields, algorithm, key) {
+function decryptObjectFields(obj, fields, keys) {
   if (Array.isArray(obj)) {
-    return obj.map((item) => decryptObjectFields(item, fields, algorithm, key));
+    return obj.map((item) => decryptObjectFields(item, fields, keys));
   }
 
   if (obj !== null && typeof obj === "object") {
     const result = {};
     for (const [k, v] of Object.entries(obj)) {
       if (fields.includes(k) && typeof v === "string" && v.length > 0) {
-        const decrypted = DECRYPTOR.decrypt(v, algorithm, key);
+        // Try each key in order until one succeeds
+        let decrypted = null;
+        for (const keyConfig of keys) {
+          decrypted = DECRYPTOR.decrypt(v, keyConfig.algorithm, keyConfig.key);
+          if (decrypted) break;
+        }
         if (decrypted) {
           try {
-            // prefix with __dec__ so the key renderer can add the unlock badge
             result[`__dec__${k}`] = JSON.parse(decrypted);
           } catch {
             result[`__dec__${k}`] = decrypted;
@@ -868,11 +912,26 @@ function decryptObjectFields(obj, fields, algorithm, key) {
           result[k] = v;
         }
       } else {
-        result[k] = decryptObjectFields(v, fields, algorithm, key);
+        result[k] = decryptObjectFields(v, fields, keys);
       }
     }
     return result;
   }
 
   return obj;
+}
+
+function getDecryptKeys() {
+  const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_CONFIGS);
+  if (stored) {
+    try {
+      return JSON.parse(stored).filter((k) => k.key && k.algorithm);
+    } catch {}
+  }
+  // Legacy fallback
+  const key = localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_KEY) || "";
+  const algorithm =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ALGORITHM) || "SM4";
+  if (key) return [{ algorithm, key }];
+  return [];
 }

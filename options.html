@@ -16,67 +16,62 @@
       </header>
 
       <main class="settings">
+
+        <!-- ── Swagger 配置 ─────────────────────────────────────────────── -->
         <section class="settings-section">
-          <h2 class="section-title">Swagger</h2>
+          <h2 class="section-title">Swagger 配置</h2>
+          <p class="section-desc">
+            为不同项目配置 Swagger 地址。点击接口名时自动根据 API 路径前缀匹配对应配置跳转。
+          </p>
 
-          <div class="setting-item">
-            <label class="setting-label" for="swaggerBaseInput">服务地址</label>
-            <p class="setting-desc">
-              点击请求名称时跳转的目标服务器，例如
-              <code>http://192.168.1.9:8080</code>
-            </p>
-            <div class="setting-row">
-              <input
-                id="swaggerBaseInput"
-                class="setting-input"
-                placeholder="http://192.168.1.9:8080"
-              />
-              <button id="saveSwaggerBase" class="save-button">保存</button>
+          <div id="swaggerConfigList" class="config-list"></div>
+
+          <button id="addSwaggerConfigBtn" class="add-config-button">+ 添加配置</button>
+
+          <div id="swaggerConfigForm" class="config-form hidden">
+            <div class="config-form-grid">
+              <div class="form-field">
+                <label class="form-label" for="cfgName">名称</label>
+                <input id="cfgName" class="setting-input" placeholder="例如：项目A" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="cfgBase">服务器地址</label>
+                <input id="cfgBase" class="setting-input" placeholder="http://192.168.1.9:8080" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="cfgSuffix">
+                  Swagger 页面路径
+                  <span class="form-hint">拼接在服务器地址之后</span>
+                </label>
+                <input id="cfgSuffix" class="setting-input" placeholder="/xxx/doc.html#/home" />
+              </div>
+              <div class="form-field form-field--full">
+                <label class="form-label" for="cfgPrefixes">
+                  API 路径前缀
+                  <span class="form-hint">每行一个，用于匹配跳转目标</span>
+                </label>
+                <textarea id="cfgPrefixes" class="setting-textarea" rows="3"
+                  placeholder="/loancrm-admin"></textarea>
+              </div>
             </div>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="swaggerSuffixInput">页面路径</label>
-            <p class="setting-desc">
-              拼接在服务地址后的 Swagger 路由，例如
-              <code>/xxx/doc.html#/home</code>
-            </p>
-            <div class="setting-row">
-              <input id="swaggerSuffixInput" class="setting-input" />
-              <button id="saveSwaggerSuffix" class="save-button">保存</button>
+            <div class="form-actions">
+              <button id="cancelSwaggerConfigBtn" class="cancel-button">取消</button>
+              <button id="saveSwaggerConfigBtn" class="save-button">保存</button>
             </div>
           </div>
         </section>
 
-        <section class="settings-section">
-          <h2 class="section-title">API 路径</h2>
-
-          <div class="setting-item">
-            <label class="setting-label" for="apiPrefixInput">去除的路径前缀</label>
-            <p class="setting-desc">
-              请求列表显示 API 名称时自动去除这些前缀，每行一个，例如
-              <code>/loancrm-admin</code>
-            </p>
-            <textarea
-              id="apiPrefixInput"
-              class="setting-textarea"
-              rows="4"
-            ></textarea>
-            <div class="setting-actions">
-              <button id="saveApiPrefix" class="save-button">保存</button>
-            </div>
-          </div>
-        </section>
-
+        <!-- ── 响应解密 ─────────────────────────────────────────────────── -->
         <section class="settings-section">
           <h2 class="section-title">响应解密</h2>
 
+          <!-- Enable toggle -->
           <div class="setting-item">
             <div class="setting-row setting-row--between">
               <div>
                 <span class="setting-label">启用解密</span>
                 <p class="setting-desc">
-                  自动解密 JSON 响应中指定字段的加密值，并在面板中以树形展示解密后内容
+                  自动解密 JSON 响应中指定字段的加密值，并以树形展示解密后内容
                 </p>
               </div>
               <label class="toggle" title="启用或禁用响应解密">
@@ -87,47 +82,76 @@
           </div>
 
           <div id="decryptOptions">
-            <div class="setting-item">
-              <label class="setting-label" for="decryptAlgorithm">加密算法</label>
-              <p class="setting-desc">选择服务端使用的加密算法，须与后端保持一致</p>
-              <select id="decryptAlgorithm" class="setting-select">
-                <option value="SM4">SM4（国密）</option>
-                <option value="AES">AES-128 ECB</option>
-              </select>
-            </div>
-
-            <div class="setting-item">
-              <label class="setting-label" for="decryptKey">密钥</label>
-              <p class="setting-desc">16 位字符串密钥，须与服务端完全一致</p>
-              <div class="setting-row">
-                <input
-                  id="decryptKey"
-                  class="setting-input"
-                  maxlength="32"
-                  placeholder="输入 16 位密钥"
-                  type="password"
-                  autocomplete="off"
-                />
-                <button id="saveDecryptSettings" class="save-button">保存</button>
-              </div>
-            </div>
-
+            <!-- Target field -->
             <div class="setting-item">
               <label class="setting-label" for="decryptField">目标字段名</label>
               <p class="setting-desc">
-                需要解密的 JSON 字段名，默认为 <code>data</code>；
-                多个字段用英文逗号分隔，例如 <code>data,result</code>
+                需要解密的字段名，多个用英文逗号分隔，例如 <code>data,result</code>
               </p>
               <div class="setting-row">
-                <input
-                  id="decryptField"
-                  class="setting-input"
-                  placeholder="data"
-                />
+                <input id="decryptField" class="setting-input" placeholder="data" />
+                <button id="saveDecryptField" class="save-button">保存</button>
+              </div>
+            </div>
+
+            <!-- Key list -->
+            <div class="setting-item">
+              <div class="setting-row setting-row--between" style="margin-bottom:8px">
+                <span class="setting-label">密钥列表</span>
+                <button id="addDecryptKeyBtn" class="add-config-button add-config-button--sm">
+                  + 添加密钥
+                </button>
+              </div>
+              <p class="setting-desc">
+                支持多个密钥，解密时依次尝试直到成功，方便多项目一次配置随意切换。
+              </p>
+
+              <div id="decryptKeyList" class="config-list"></div>
+
+              <div id="decryptKeyForm" class="config-form hidden">
+                <div class="config-form-grid">
+                  <div class="form-field">
+                    <label class="form-label" for="dkName">名称</label>
+                    <input id="dkName" class="setting-input" placeholder="例如：项目A" />
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label" for="dkAlgorithm">加密算法</label>
+                    <select id="dkAlgorithm" class="setting-select">
+                      <option value="SM4">SM4（国密）</option>
+                      <option value="AES">AES-128 ECB</option>
+                    </select>
+                  </div>
+                  <div class="form-field form-field--full">
+                    <label class="form-label" for="dkValue">密钥（16 位）</label>
+                    <div class="password-field">
+                      <input
+                        id="dkValue"
+                        class="setting-input"
+                        type="password"
+                        placeholder="输入 16 位密钥"
+                        maxlength="32"
+                        autocomplete="off"
+                      />
+                      <button type="button" id="toggleDkVisibility" class="eye-button" title="显示/隐藏密钥">
+                        <svg class="eye-icon eye-icon--on" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M8 3C4.5 3 1.5 5.5 0 8c1.5 2.5 4.5 5 8 5s6.5-2.5 8-5C14.5 5.5 11.5 3 8 3zm0 8.5A3.5 3.5 0 1 1 8 4.5a3.5 3.5 0 0 1 0 7zm0-5.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
+                        </svg>
+                        <svg class="eye-icon eye-icon--off hidden" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M13.36 2.64a.5.5 0 0 0-.71 0l-1.5 1.5A7.9 7.9 0 0 0 8 3.5C4.5 3.5 1.5 6 0 8.5c.6 1 1.5 2 2.64 2.86L1.64 12.5a.5.5 0 1 0 .71.71l11-11a.5.5 0 0 0 0-.57zM8 11.5A3.5 3.5 0 0 1 5.18 6.6L6.3 7.7A2 2 0 0 0 9.8 9.7l1.1 1.1A3.48 3.48 0 0 1 8 11.5zm0-7a3.48 3.48 0 0 1 2.7 1.3l-5 5A3.5 3.5 0 0 1 8 4.5zm5.36 7.36A10.6 10.6 0 0 1 11.5 13l-1.06-1.06A7.9 7.9 0 0 0 12.5 10l1-1.5c-.5-.9-1.3-1.8-2.2-2.5L12.5 4.8A8.4 8.4 0 0 1 16 8.5c-.5.9-1.4 2-2.64 3.36z"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button id="cancelDecryptKeyBtn" class="cancel-button">取消</button>
+                  <button id="saveDecryptKeyBtn" class="save-button">保存</button>
+                </div>
               </div>
             </div>
           </div>
         </section>
+
       </main>
     </div>
 

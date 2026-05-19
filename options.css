@@ -265,3 +265,247 @@ body {
   transform: translateX(18px);
 }
 
+/* ── Section description ─────────────────────────────────────────────────── */
+
+.section-desc {
+  margin: -4px 0 14px;
+  font-size: 12px;
+  color: #57606a;
+  line-height: 1.6;
+}
+
+/* ── Config list & cards ─────────────────────────────────────────────────── */
+
+.config-list {
+  margin-bottom: 10px;
+}
+
+.config-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+
+.config-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.config-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2328;
+  margin-bottom: 3px;
+}
+
+.config-card-url {
+  font-size: 12px;
+  color: #57606a;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 6px;
+}
+
+.config-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.config-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  background: #ddf4ff;
+  border: 1px solid #a8d8f0;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #0550ae;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+
+.config-card-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+  align-items: center;
+}
+
+.config-empty {
+  font-size: 12px;
+  color: #8c959f;
+  margin: 0 0 10px;
+}
+
+/* ── Icon / action buttons ───────────────────────────────────────────────── */
+
+.icon-button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #1f2328;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.icon-button:hover {
+  background: #eaeef2;
+  border-color: #c9d1d9;
+}
+
+.icon-button--danger {
+  color: #cf222e;
+  border-color: #ffa198;
+  background: #fff5f5;
+}
+
+.icon-button--danger:hover {
+  background: #ffe0e0;
+  border-color: #ff6a69;
+}
+
+.add-config-button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px dashed #c9d1d9;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  width: 100%;
+}
+
+.add-config-button:hover {
+  background: #f6f8fa;
+  border-color: #0969da;
+  color: #0969da;
+}
+
+.add-config-button--sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  width: auto;
+}
+
+/* ── Config form ─────────────────────────────────────────────────────────── */
+
+.config-form {
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 10px;
+}
+
+.config-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-field--full {
+  grid-column: 1 / -1;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2328;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.form-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #8c959f;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cancel-button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #57606a;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cancel-button:hover {
+  background: #f6f8fa;
+}
+
+/* ── Password field with eye toggle ─────────────────────────────────────── */
+
+.password-field {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  position: relative;
+}
+
+.password-field .setting-input {
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+}
+
+.password-field .setting-input:focus {
+  z-index: 1;
+  border-right: 1px solid #0969da;
+}
+
+.eye-button {
+  flex: none;
+  width: 36px;
+  height: 32px;
+  border: 1px solid #c9d1d9;
+  border-radius: 0 6px 6px 0;
+  background: #f6f8fa;
+  color: #57606a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.eye-button:hover {
+  background: #eaeef2;
+  color: #1f2328;
+}
+
+.eye-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
