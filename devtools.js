@@ -62,8 +62,12 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 function notifyPanels(message) {
-  for (const port of panelPorts) {
-    port.postMessage(message);
+  for (const port of [...panelPorts]) {
+    try {
+      port.postMessage(message);
+    } catch {
+      panelPorts.delete(port);
+    }
   }
 }
 

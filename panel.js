@@ -16,6 +16,7 @@ const requests = [];
 let activeRequest = null;
 let activeJsonText = "";
 let activeJsonData = null;
+let activeProcessedData = null;
 
 let searchText = "";
 let searchMatches = [];
@@ -116,13 +117,12 @@ function loadRequestContent(request) {
 
   try {
     activeJsonData = JSON.parse(activeJsonText);
-    const processed = tryDecryptFields(activeJsonData);
-    renderJson(processed);
+    activeProcessedData = tryDecryptFields(activeJsonData);
+    renderJson(activeProcessedData);
   } catch (error) {
     activeJsonData = null;
+    activeProcessedData = null;
     jsonViewerEl.replaceChildren();
-
-    const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = `JSON parse failed: ${error.message}`;
 
@@ -499,8 +499,8 @@ searchInputEl.addEventListener("input", () => {
   searchText = searchInputEl.value;
   currentMatchIndex = 0;
 
-  if (activeJsonData) {
-    renderJson(activeJsonData);
+  if (activeProcessedData) {
+    renderJson(activeProcessedData);
   }
 });
 
@@ -520,8 +520,8 @@ searchInputEl.addEventListener("keydown", (event) => {
       searchText = "";
       searchInputEl.value = "";
 
-      if (activeJsonData) {
-        renderJson(activeJsonData);
+      if (activeProcessedData) {
+        renderJson(activeProcessedData);
       }
     } else {
       searchInputEl.blur();
@@ -567,6 +567,10 @@ document.addEventListener(
 );
 
 function getPrettyJsonText() {
+  if (activeProcessedData) {
+    return JSON.stringify(activeProcessedData, null, 2);
+  }
+
   if (!activeJsonText) {
     return "";
   }
@@ -759,6 +763,7 @@ function clearRequestsLocal() {
   activeRequest = null;
   activeJsonText = "";
   activeJsonData = null;
+  activeProcessedData = null;
 
   searchText = "";
   searchMatches = [];
