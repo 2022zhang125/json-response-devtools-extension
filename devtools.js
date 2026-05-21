@@ -1,12 +1,24 @@
 const requests = [];
 const panelPorts = new Set();
 
+// URL path prefixes to capture — empty means capture all JSON requests.
+// Synced from panel via "sync-config" message.
+let urlPrefixes = [];
+
 chrome.devtools.network.onRequestFinished.addListener((request) => {
   if (!isFetchRequest(request)) {
     return;
   }
 
-  if (!isJsonRequest(request)) {
+  // If prefixes are configured, capture any request matching them regardless of Content-Type.
+  // If no prefixes are configured, fall back to Content-Type / URL heuristic.
+  const prefixMatched = urlPrefixes.length > 0 && isMatchingPrefix(request.request.url);
+
+  if (!prefixMatched && !isJsonRequest(request)) {
+    return;
+  }
+
+  if (urlPrefixes.length > 0 && !prefixMatched) {
     return;
   }
 
@@ -54,6 +66,10 @@ chrome.runtime.onConnect.addListener((port) => {
         type: "requests-cleared",
       });
     }
+
+    if (message.type === "sync-config") {
+      urlPrefixes = Array.isArray(message.prefixes) ? message.prefixes : [];
+    }
   });
 
   port.onDisconnect.addListener(() => {
@@ -73,6 +89,24 @@ function notifyPanels(message) {
 
 function isFetchRequest(request) {
   return request._resourceType === "fetch" || request._resourceType === "xhr";
+}
+
+function isMatchingPrefix(url) {
+  // No prefixes configured → capture everything
+  if (urlPrefixes.length === 0) {
+    return true;
+  }
+
+  let pathname;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    pathname = url;
+  }
+
+  return urlPrefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 function isJsonRequest(request) {

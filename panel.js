@@ -41,15 +41,33 @@ updateSearchButtons();
 setupClearRequests();
 setupSearchToggleButtons();
 
+// Re-sync prefix config to devtools.js whenever settings are saved in options page
+window.addEventListener("storage", (event) => {
+  if (
+    event.key === CONFIG.STORAGE_KEYS.SWAGGER_CONFIGS ||
+    event.key === CONFIG.STORAGE_KEYS.API_PREFIX_STRIP
+  ) {
+    syncConfigToDevtools();
+  }
+});
+
 const port = chrome.runtime.connect({
   name: "json-response-panel",
 });
+
+// Send current prefix config to devtools.js so it can filter captured requests
+function syncConfigToDevtools() {
+  port.postMessage({
+    type: "sync-config",
+    prefixes: getAllPrefixList(),
+  });
+}
 
 port.onMessage.addListener((message) => {
   if (message.type === "init-requests") {
     requests.length = 0;
     requests.push(...message.requests);
-
+    syncConfigToDevtools();
     renderRequestList();
     return;
   }
@@ -180,6 +198,8 @@ function loadRequestContent(request) {
     activeJsonData = null;
     activeProcessedData = null;
     jsonViewerEl.replaceChildren();
+
+    const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = `JSON parse failed: ${error.message}`;
 
