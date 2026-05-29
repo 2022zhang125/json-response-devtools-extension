@@ -69,9 +69,16 @@
             ›
           </button>
 
+          <div class="viewer-tabs">
+            <button id="tabResponse" class="viewer-tab is-active">Response</button>
+            <button id="tabRequest" class="viewer-tab">Request</button>
+          </div>
+
           <div id="jsonViewer" class="json-viewer">
             <div class="empty">请先从左侧选择一个 JSON 请求</div>
           </div>
+
+          <div id="requestViewer" class="request-viewer hidden"></div>
         </main>
       </div>
 

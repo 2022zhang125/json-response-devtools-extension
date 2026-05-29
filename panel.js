@@ -5,6 +5,9 @@ const collapseSidebarBtn = document.getElementById("collapseSidebarBtn");
 const expandSidebarBtn = document.getElementById("expandSidebarBtn");
 const clearRequestsBtn = document.getElementById("clearRequestsBtn");
 const jsonViewerEl = document.getElementById("jsonViewer");
+const requestViewerEl = document.getElementById("requestViewer");
+const tabResponseBtn = document.getElementById("tabResponse");
+const tabRequestBtn = document.getElementById("tabRequest");
 const searchInputEl = document.getElementById("searchInput");
 const searchCountEl = document.getElementById("searchCount");
 const prevBtn = document.getElementById("prevBtn");
@@ -14,6 +17,8 @@ const toastEl = document.getElementById("toast");
 const searchCaseSensitiveBtn = document.getElementById("searchCaseSensitiveBtn");
 const searchWholeWordBtn = document.getElementById("searchWholeWordBtn");
 const searchRegexBtn = document.getElementById("searchRegexBtn");
+
+let activeTab = "response"; // "response" | "request"
 
 const requests = [];
 
@@ -40,6 +45,7 @@ setupSidebarCollapse();
 updateSearchButtons();
 setupClearRequests();
 setupSearchToggleButtons();
+setupTabs();
 
 // Re-sync prefix config to devtools.js whenever settings are saved in options page
 window.addEventListener("storage", (event) => {
@@ -189,6 +195,7 @@ function buildRequestItem(request) {
 
 function loadRequestContent(request) {
   activeJsonText = request.content || "";
+  renderRequestViewer(request);
 
   try {
     activeJsonData = JSON.parse(activeJsonText);
@@ -284,14 +291,14 @@ function createObjectLikeNode(value, key, openToken, closeToken, summary) {
   }
 
   const closeLine = document.createElement("div");
-  closeLine.className = "json-tree-line";
+  closeLine.className = "json-tree-line json-tree-close-line";
   closeLine.appendChild(createSpan("json-tree-toggle-placeholder", ""));
   closeLine.appendChild(createSpan("json-punctuation", closeToken));
-  children.appendChild(closeLine);
 
   toggle.addEventListener("click", () => {
     const collapsed = children.style.display !== "none";
     children.style.display = collapsed ? "none" : "";
+    closeLine.style.display = collapsed ? "none" : "";
     toggle.textContent = collapsed ? "▸" : "▾";
 
     setHighlightedText(
@@ -300,7 +307,7 @@ function createObjectLikeNode(value, key, openToken, closeToken, summary) {
     );
   });
 
-  node.append(line, children);
+  node.append(line, children, closeLine);
   return node;
 }
 
@@ -1047,6 +1054,54 @@ function getDecryptKeys() {
   return [];
 }
 
+// Like tryDecryptFields but tries ALL string values regardless of field name.
+// Used for request payload where field names may not match the configured target fields.
+function tryDecryptPayload(data) {
+  if (!data || typeof data !== "object") return data;
+
+  const enabled =
+    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true";
+  if (!enabled) return data;
+
+  const keys = getDecryptKeys();
+  if (keys.length === 0) return data;
+
+  return decryptAllStringFields(data, keys);
+}
+
+function decryptAllStringFields(obj, keys) {
+  if (Array.isArray(obj)) {
+    return obj.map((item) => decryptAllStringFields(item, keys));
+  }
+
+  if (obj !== null && typeof obj === "object") {
+    const result = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === "string" && v.length > 0) {
+        let decrypted = null;
+        for (const keyConfig of keys) {
+          decrypted = DECRYPTOR.decrypt(v, keyConfig.algorithm, keyConfig.key);
+          if (decrypted) break;
+        }
+        if (decrypted) {
+          try {
+            result[`__dec__${k}`] = JSON.parse(decrypted);
+          } catch {
+            result[`__dec__${k}`] = decrypted;
+          }
+        } else {
+          result[k] = v;
+        }
+      } else {
+        result[k] = decryptAllStringFields(v, keys);
+      }
+    }
+    return result;
+  }
+
+  return obj;
+}
+
 // ── Search toggle buttons ─────────────────────────────────────────────────────
 
 function setupSearchToggleButtons() {
@@ -1097,7 +1152,129 @@ function setupSearchToggleButtons() {
 
 function triggerSearchRerender() {
   currentMatchIndex = 0;
-  if (activeProcessedData) {
+  if (activeTab === "response" && activeProcessedData) {
     renderJson(activeProcessedData);
   }
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+function setupTabs() {
+  tabResponseBtn.addEventListener("click", () => switchTab("response"));
+  tabRequestBtn.addEventListener("click", () => switchTab("request"));
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  tabResponseBtn.classList.toggle("is-active", tab === "response");
+  tabRequestBtn.classList.toggle("is-active", tab === "request");
+  jsonViewerEl.classList.toggle("hidden", tab !== "response");
+  requestViewerEl.classList.toggle("hidden", tab !== "request");
+
+  // Search only applies to response tab
+  const searchDisabled = tab !== "response";
+  searchInputEl.disabled = searchDisabled;
+  searchInputEl.style.opacity = searchDisabled ? "0.4" : "";
+}
+
+// ── Request viewer ────────────────────────────────────────────────────────────
+
+function renderRequestViewer(request) {
+  requestViewerEl.replaceChildren();
+
+  if (!request) return;
+
+  // ── General info ──────────────────────────────────────────────────────────
+  const section = (title) => {
+    const el = document.createElement("div");
+    el.className = "req-section";
+    const h = document.createElement("div");
+    h.className = "req-section-title";
+    h.textContent = title;
+    el.appendChild(h);
+    return el;
+  };
+
+  // Payload (first)
+  const body = request.requestBody || "";
+  if (body) {
+    const payloadSection = section("Payload");
+    let parsed = null;
+    try { parsed = JSON.parse(body); } catch {}
+
+    if (parsed) {
+      const processed = tryDecryptPayload(parsed);
+      const treeWrap = document.createElement("div");
+      treeWrap.className = "req-payload-tree";
+
+      // Temporarily redirect searchMatches to avoid polluting response search
+      const savedMatches = searchMatches;
+      searchMatches = [];
+      const root = document.createElement("div");
+      root.className = "json-tree-root";
+      root.appendChild(createJsonNode(processed));
+      treeWrap.appendChild(root);
+      searchMatches = savedMatches;
+
+      payloadSection.appendChild(treeWrap);
+    } else {
+      // Raw body (form-encoded or plain text)
+      const raw = document.createElement("div");
+      raw.className = "req-raw-body";
+      try {
+        const params = new URLSearchParams(body);
+        const hasKeys = [...params.keys()].length > 0;
+        if (hasKeys) {
+          params.forEach((v, k) => payloadSection.appendChild(makeKVRow(k, v)));
+        } else {
+          raw.textContent = body;
+          payloadSection.appendChild(raw);
+        }
+      } catch {
+        raw.textContent = body;
+        payloadSection.appendChild(raw);
+      }
+    }
+    requestViewerEl.appendChild(payloadSection);
+  }
+
+  // General
+  const general = section("General");
+  const generalRows = [
+    ["Request URL", request.url],
+    ["Request Method", request.method],
+    ["Status Code", `${request.status} ${request.statusText}`],
+  ];
+  generalRows.forEach(([k, v]) => general.appendChild(makeKVRow(k, v)));
+  requestViewerEl.appendChild(general);
+
+  // Request Headers
+  if (request.requestHeaders && request.requestHeaders.length > 0) {
+    const headersSection = section("Request Headers");
+    request.requestHeaders.forEach(({ name, value }) => {
+      headersSection.appendChild(makeKVRow(name, value));
+    });
+    requestViewerEl.appendChild(headersSection);
+  }
+}
+
+function makeKVRow(key, value) {
+  const row = document.createElement("div");
+  row.className = "req-kv-row";
+
+  const k = document.createElement("span");
+  k.className = "req-kv-key";
+  k.textContent = key;
+
+  const v = document.createElement("span");
+  v.className = "req-kv-value";
+  v.textContent = value;
+  v.title = "Double-click to copy";
+  v.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    copyText(value, "Copied");
+  });
+
+  row.append(k, v);
+  return row;
 }

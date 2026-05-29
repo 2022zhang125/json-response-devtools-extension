@@ -271,6 +271,116 @@ body.is-resizing .resize-handle::before {
   background: #ffffff;
 }
 
+/* ── Viewer tabs ─────────────────────────────────────────────────────────── */
+
+.viewer-tabs {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid #d0d7de;
+  background: #f6f8fa;
+}
+
+.viewer-tab {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: #57606a;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+  top: 1px;
+  transition: background 0.12s, color 0.12s;
+}
+
+.viewer-tab:hover {
+  background: #eaeef2;
+  color: #1f2328;
+}
+
+.viewer-tab.is-active {
+  background: #ffffff;
+  color: #1f2328;
+  font-weight: 600;
+  border-color: #d0d7de;
+}
+
+/* ── Request viewer ─────────────────────────────────────────────────────── */
+
+.request-viewer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.req-section {
+  margin-bottom: 18px;
+}
+
+.req-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #57606a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #eaeef2;
+}
+
+.req-kv-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 30%) 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid #f0f3f6;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.req-kv-row:last-child {
+  border-bottom: none;
+}
+
+.req-kv-key {
+  color: #57606a;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.req-kv-value {
+  color: #1f2328;
+  word-break: break-all;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  cursor: default;
+}
+
+.req-kv-value:hover {
+  background: #f6f8fa;
+  border-radius: 3px;
+}
+
+.req-payload-tree {
+  padding: 4px 0;
+}
+
+.req-raw-body {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: #1f2328;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 6px 0;
+}
+
 .expand-sidebar-button {
   position: absolute;
   top: 8px;

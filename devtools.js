@@ -33,6 +33,8 @@ chrome.devtools.network.onRequestFinished.addListener((request) => {
       encoding: encoding || "",
       resourceType: request._resourceType || "",
       createdAt: Date.now(),
+      requestHeaders: request.request.headers || [],
+      requestBody: request.request.postData?.text || "",
     };
 
     record.relativeTimeText = getRelativeTimeText(record.createdAt);
