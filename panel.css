@@ -166,10 +166,6 @@ body {
   display: none;
 }
 
-.layout.is-sidebar-collapsed .json-viewer {
-  padding-left: 42px;
-}
-
 .request-panel {
   min-width: 0;
   height: 100%;
@@ -383,13 +379,18 @@ body.is-resizing .resize-handle::before {
 
 .expand-sidebar-button {
   position: absolute;
-  top: 8px;
+  top: 4px;
   left: 8px;
   z-index: 20;
 }
 
-.layout.is-sidebar-collapsed .json-viewer {
-  padding-left: 42px;
+.layout.is-sidebar-collapsed .viewer-tabs {
+  padding-left: 44px;
+}
+
+.layout.is-sidebar-collapsed .json-viewer,
+.layout.is-sidebar-collapsed .request-viewer {
+  padding-left: 16px;
 }
 
 .hidden {

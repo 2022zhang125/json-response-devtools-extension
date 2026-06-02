@@ -1,6 +1,6 @@
 # Custom JSON Response Viewer
 
-> 面向后端接口调试的 Chrome / Edge DevTools 扩展。以树形结构展示 JSON 响应，支持多项目 Swagger 跳转、响应解密与高级搜索。
+> 面向后端接口调试的 Chrome / Edge DevTools 扩展。以树形结构展示 JSON 响应与请求载荷，支持多项目 Swagger 跳转、响应/请求双向解密与高级搜索。
 
 ---
 
@@ -8,10 +8,18 @@
 
 ### JSON 树形查看器
 - 自动拦截页面所有 XHR / Fetch 请求，过滤并展示 JSON 响应（含 404、500 等错误响应）
-- 可折叠树形结构，层次清晰，支持大数据量浏览
+- 可折叠树形结构，闭合括号 `}` / `]` 与对应开始行对齐，层次清晰
 - 双击任意 **Key**、**Value** 或 **对象/数组摘要** 直接复制内容
 - URL 类型字符串渲染为可点击链接
 - `Ctrl/Cmd + A` 一键复制当前完整响应（格式化 JSON，含解密内容）
+
+### 请求详情（Tab 切换）
+右侧支持 **Response** 和 **Request** 双 Tab：
+- **Response** — JSON 响应树
+- **Request** — 显示顺序：Payload（请求载荷）→ General（URL/Method/Status）→ Request Headers
+  - Payload 自动 JSON 解析并以树形展示
+  - 表单编码自动解析为键值对
+  - 加密的 Payload 字段自动解密（如 `encryptData`）
 
 ### 请求列表
 - 实时捕获并展示接口路径、HTTP 状态码、相对时间
@@ -33,9 +41,10 @@
 - 支持配置多条 Swagger 地址，无需手动切换项目
 - 跳转同时将接口路径复制到剪贴板，方便 Swagger 内二次搜索
 
-### 响应解密
+### 响应与请求解密
 - 支持 SM4（国密）和 AES-128 ECB 两种算法
-- 自动解密指定字段（默认 `data`），以树形展示解密后内容
+- **响应**：解密目标字段名匹配的值（默认 `data`，可配置多个），避免误解密
+- **请求 Payload**：自动尝试解密所有字符串值（如 `encryptData` 等任意字段名）
 - 支持配置多个密钥，解密时依次尝试，方便多项目一次配置随意切换
 - 解密字段以 🔓 标识；搜索、`Ctrl+A` 复制均作用于解密后内容
 
@@ -71,8 +80,8 @@
 
 | 字段 | 说明 |
 |------|------|
-| 启用解密 | 全局开关 |
-| 目标字段名 | 需要解密的 JSON 字段，多个用英文逗号分隔，默认 `data` |
+| 启用解密 | 全局开关，同时控制响应和请求 Payload 解密 |
+| 目标字段名 | 响应需要解密的字段名，多个用英文逗号分隔，默认 `data` |
 | 密钥列表 | 每条含名称、算法（SM4 / AES-128）、密钥；解密时依次尝试 |
 
 > 配置保存后立即生效，DevTools 面板无需刷新。
@@ -83,9 +92,10 @@
 
 1. 打开 DevTools（`F12`），切换到 **JSON Response** 面板
 2. 刷新页面或正常操作，左侧列表自动收集匹配的 JSON 请求
-3. 点击任意请求，右侧展示树形 JSON 内容（加密字段自动解密）
-4. 在顶部搜索框输入关键词，实时高亮定位；可切换大小写、全词、正则模式
-5. 点击接口名称（蓝色），自动跳转到对应项目的 Swagger 文档
+3. 点击任意请求，右侧默认展示 **Response** 树形 JSON（加密字段自动解密）
+4. 切换到 **Request** Tab 查看 Payload、URL、Method、Headers
+5. 在顶部搜索框输入关键词，实时高亮定位；可切换大小写、全词、正则模式
+6. 点击接口名称（蓝色），自动跳转到对应项目的 Swagger 文档
 
 ---
 
@@ -120,6 +130,21 @@ const CONFIG = {
 
 ---
 
+## 打包发布
+
+使用 PowerShell 调用 .NET API 打包，保留 `lib/` 子目录结构：
+
+```powershell
+Add-Type -Assembly System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::Open('release.zip', 'Create')
+# 根目录文件 + lib/ 子目录文件依次添加
+$zip.Dispose()
+```
+
+> 不要使用 `Compress-Archive`——它会把子目录文件打平到根目录，导致 `lib/crypto-js.js` 等库无法加载，解密功能失效。
+
+---
+
 ## 文件结构
 
 ```
@@ -127,8 +152,8 @@ const CONFIG = {
 ├── config.js              # 默认值与 Storage Key 定义
 ├── background.js          # Service Worker，处理图标点击（打开设置页）
 ├── devtools.html          # DevTools 入口页
-├── devtools.js            # 注册面板，捕获并过滤网络请求
-├── panel.html             # JSON 查看器面板页面
+├── devtools.js            # 注册面板，捕获并过滤网络请求（含 Headers/Payload）
+├── panel.html             # JSON 查看器面板页面（含 Response/Request Tab）
 ├── panel.js               # 面板逻辑（树形渲染、搜索、Swagger 跳转、解密）
 ├── panel.css              # 面板样式
 ├── decrypt.js             # SM4 / AES 解密封装
