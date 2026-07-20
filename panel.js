@@ -150,14 +150,20 @@ function buildRequestItem(request) {
 
   const name = document.createElement("div");
   name.className = "request-name";
-  name.textContent = requestApiPath;
-  name.title = `Open Swagger and search ${requestApiPath}`;
 
-  name.addEventListener("click", (event) => {
+  // 只有文字本身可点，避免点到列内空白区域误触跳转
+  const nameText = document.createElement("span");
+  nameText.className = "request-name-text";
+  nameText.textContent = requestApiPath;
+  nameText.title = `Open Swagger and search ${requestApiPath}`;
+
+  nameText.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     openSwaggerAndSearch(requestApiPath, request.url);
   });
+
+  name.appendChild(nameText);
 
   const time = document.createElement("span");
   time.className = "request-time";
@@ -195,7 +201,6 @@ function buildRequestItem(request) {
 
 function loadRequestContent(request) {
   activeJsonText = request.content || "";
-  renderRequestViewer(request);
 
   try {
     activeJsonData = JSON.parse(activeJsonText);
@@ -211,24 +216,20 @@ function loadRequestContent(request) {
     empty.textContent = `JSON parse failed: ${error.message}`;
 
     jsonViewerEl.appendChild(empty);
-    resetSearchState();
   }
+
+  renderRequestViewer(request);
+  refreshSearchMatches(false);
 }
 
 function renderJson(data) {
   jsonViewerEl.replaceChildren();
-  searchMatches = [];
 
   const root = document.createElement("div");
   root.className = "json-tree-root";
   root.appendChild(createJsonNode(data));
 
   jsonViewerEl.appendChild(root);
-
-  normalizeCurrentMatchIndex();
-  updateCurrentMatch(false);
-  updateSearchCount();
-  updateSearchButtons();
 }
 
 function createJsonNode(value, key) {
@@ -483,7 +484,6 @@ function appendHighlightedText(element, text) {
     mark.className = "json-search-mark";
     mark.textContent = text.slice(start, end);
     element.appendChild(mark);
-    searchMatches.push(mark);
 
     lastIndex = end;
   }
@@ -597,20 +597,39 @@ function updateSearchButtons() {
   nextBtn.disabled = disabled;
 }
 
-function resetSearchState() {
-  searchMatches = [];
-  currentMatchIndex = -1;
+function getActiveViewerEl() {
+  return activeTab === "response" ? jsonViewerEl : requestViewerEl;
+}
+
+// 匹配项按 DOM 顺序从当前激活的面板重新收集，Response / Request 各自独立
+function refreshSearchMatches(shouldScroll) {
+  searchMatches = [
+    ...getActiveViewerEl().querySelectorAll("mark.json-search-mark"),
+  ];
+
+  normalizeCurrentMatchIndex();
+  updateCurrentMatch(shouldScroll);
   updateSearchCount();
   updateSearchButtons();
+}
+
+function rerenderActiveView() {
+  if (activeTab === "response") {
+    if (activeProcessedData) {
+      renderJson(activeProcessedData);
+    }
+  } else if (activeRequest) {
+    renderRequestViewer(activeRequest);
+  }
+
+  refreshSearchMatches(false);
 }
 
 searchInputEl.addEventListener("input", () => {
   searchText = searchInputEl.value;
   currentMatchIndex = 0;
 
-  if (activeProcessedData) {
-    renderJson(activeProcessedData);
-  }
+  rerenderActiveView();
 });
 
 searchInputEl.addEventListener("keydown", (event) => {
@@ -628,10 +647,9 @@ searchInputEl.addEventListener("keydown", (event) => {
     if (searchText) {
       searchText = "";
       searchInputEl.value = "";
+      currentMatchIndex = -1;
 
-      if (activeProcessedData) {
-        renderJson(activeProcessedData);
-      }
+      rerenderActiveView();
     } else {
       searchInputEl.blur();
     }
@@ -886,6 +904,7 @@ function clearRequestsLocal() {
   moveIndicatorTo(null);
 
   jsonViewerEl.replaceChildren();
+  requestViewerEl.replaceChildren();
 
   const empty = document.createElement("div");
   empty.className = "empty";
@@ -1152,9 +1171,7 @@ function setupSearchToggleButtons() {
 
 function triggerSearchRerender() {
   currentMatchIndex = 0;
-  if (activeTab === "response" && activeProcessedData) {
-    renderJson(activeProcessedData);
-  }
+  rerenderActiveView();
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -1171,10 +1188,9 @@ function switchTab(tab) {
   jsonViewerEl.classList.toggle("hidden", tab !== "response");
   requestViewerEl.classList.toggle("hidden", tab !== "request");
 
-  // Search only applies to response tab
-  const searchDisabled = tab !== "response";
-  searchInputEl.disabled = searchDisabled;
-  searchInputEl.style.opacity = searchDisabled ? "0.4" : "";
+  // 搜索在两个 Tab 都可用，切换后用当前关键词重绘新面板并重新定位匹配项
+  currentMatchIndex = 0;
+  rerenderActiveView();
 }
 
 // ── Request viewer ────────────────────────────────────────────────────────────
@@ -1207,14 +1223,10 @@ function renderRequestViewer(request) {
       const treeWrap = document.createElement("div");
       treeWrap.className = "req-payload-tree";
 
-      // Temporarily redirect searchMatches to avoid polluting response search
-      const savedMatches = searchMatches;
-      searchMatches = [];
       const root = document.createElement("div");
       root.className = "json-tree-root";
       root.appendChild(createJsonNode(processed));
       treeWrap.appendChild(root);
-      searchMatches = savedMatches;
 
       payloadSection.appendChild(treeWrap);
     } else {
@@ -1227,11 +1239,11 @@ function renderRequestViewer(request) {
         if (hasKeys) {
           params.forEach((v, k) => payloadSection.appendChild(makeKVRow(k, v)));
         } else {
-          raw.textContent = body;
+          setHighlightedText(raw, body);
           payloadSection.appendChild(raw);
         }
       } catch {
-        raw.textContent = body;
+        setHighlightedText(raw, body);
         payloadSection.appendChild(raw);
       }
     }
@@ -1262,13 +1274,9 @@ function makeKVRow(key, value) {
   const row = document.createElement("div");
   row.className = "req-kv-row";
 
-  const k = document.createElement("span");
-  k.className = "req-kv-key";
-  k.textContent = key;
+  const k = createHighlightedSpan("req-kv-key", String(key ?? ""));
 
-  const v = document.createElement("span");
-  v.className = "req-kv-value";
-  v.textContent = value;
+  const v = createHighlightedSpan("req-kv-value", String(value ?? ""));
   v.title = "Double-click to copy";
   v.addEventListener("dblclick", (e) => {
     e.preventDefault();

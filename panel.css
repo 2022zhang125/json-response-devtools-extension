@@ -448,16 +448,25 @@ body.is-resizing .resize-handle::before {
 }
 
 .request-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 点击热区只覆盖文字，不撑满整列 */
+.request-name-text {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
   overflow: hidden;
   color: #0969da;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
 }
 
-.request-name:hover {
+.request-name-text:hover {
   color: #0550ae;
   text-decoration: underline;
 }

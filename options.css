@@ -21,6 +21,7 @@ body {
 .page-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 36px;
   padding-bottom: 24px;
@@ -45,6 +46,57 @@ body {
   margin: 3px 0 0;
   font-size: 13px;
   color: #57606a;
+}
+
+/* ── 配置同步按钮（标题右侧，两个按钮尺寸一致） ─────────────────────────── */
+
+.page-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.sync-button {
+  height: 32px;
+  width: 118px;
+  padding: 0 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #24292f;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.sync-button:hover {
+  background: #f6f8fa;
+  border-color: #0969da;
+  color: #0969da;
+}
+
+.sync-button:active {
+  background: #eaeef2;
+}
+
+.sync-button--primary {
+  border-color: #0969da;
+  background: #0969da;
+  color: #ffffff;
+}
+
+.sync-button--primary:hover {
+  background: #0550ae;
+  border-color: #0550ae;
+  color: #ffffff;
+}
+
+.sync-button--primary:active {
+  background: #033d8b;
+  border-color: #033d8b;
 }
 
 .settings-section {

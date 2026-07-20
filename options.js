@@ -352,3 +352,204 @@ cancelDecryptKeyBtn.addEventListener("click", closeDecryptKeyForm);
 saveDecryptKeyBtn.addEventListener("click", saveDecryptKey);
 
 renderDecryptKeyList();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Export / Import settings
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const EXPORT_TYPE = "json-response-devtools-settings";
+const EXPORT_VERSION = 1;
+
+const exportSettingsBtn = document.getElementById("exportSettingsBtn");
+const importSettingsBtn = document.getElementById("importSettingsBtn");
+const importSettingsInputEl = document.getElementById("importSettingsInput");
+
+function buildExportPayload() {
+  return {
+    type: EXPORT_TYPE,
+    version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    settings: {
+      swaggerConfigs: getSwaggerConfigs(),
+      decryptEnabled:
+        localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true",
+      decryptField:
+        localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD) || "data",
+      decryptConfigs: getDecryptKeys(),
+    },
+  };
+}
+
+function exportSettings() {
+  const payload = buildExportPayload();
+
+  if (
+    payload.settings.swaggerConfigs.length === 0 &&
+    payload.settings.decryptConfigs.length === 0
+  ) {
+    showToast("暂无配置可导出");
+    return;
+  }
+
+  const stamp = new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[-:]/g, "")
+    .replace("T", "-");
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `json-response-settings-${stamp}.json`;
+  link.click();
+
+  // 延迟释放，避免下载尚未开始就被回收
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("已导出配置文件");
+}
+
+// 只保留已知字段，避免把导入文件里的任意结构写进 localStorage
+function normalizeSwaggerConfig(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const base = String(raw.base ?? "").trim();
+  if (!base) return null;
+
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : uid(),
+    name: String(raw.name ?? "").trim(),
+    base,
+    suffix: String(raw.suffix ?? CONFIG.SWAGGER_URL_SUFFIX).trim(),
+    prefixes: Array.isArray(raw.prefixes)
+      ? raw.prefixes.map((p) => String(p).trim()).filter(Boolean)
+      : [],
+  };
+}
+
+function normalizeDecryptKey(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const key = String(raw.key ?? "").trim();
+  if (!key) return null;
+
+  const algorithm = raw.algorithm === "AES" ? "AES" : "SM4";
+
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : uid(),
+    name: String(raw.name ?? "").trim(),
+    algorithm,
+    key,
+  };
+}
+
+// 先按 id 匹配，再按业务字段去重，避免同一份配置导入多次产生副本
+function mergeById(existing, incoming, identity) {
+  let added = 0;
+  let updated = 0;
+
+  for (const item of incoming) {
+    const idx = existing.findIndex(
+      (cur) => cur.id === item.id || identity(cur) === identity(item),
+    );
+
+    if (idx >= 0) {
+      existing[idx] = { ...item, id: existing[idx].id };
+      updated += 1;
+    } else {
+      existing.push(item);
+      added += 1;
+    }
+  }
+
+  return { added, updated };
+}
+
+function importSettings(payload) {
+  if (!payload || typeof payload !== "object" || !payload.settings) {
+    showToast("文件格式不正确");
+    return;
+  }
+
+  if (payload.type !== EXPORT_TYPE) {
+    showToast("这不是本扩展导出的配置文件");
+    return;
+  }
+
+  const settings = payload.settings;
+
+  const swaggerIncoming = (
+    Array.isArray(settings.swaggerConfigs) ? settings.swaggerConfigs : []
+  )
+    .map(normalizeSwaggerConfig)
+    .filter(Boolean);
+
+  const keysIncoming = (
+    Array.isArray(settings.decryptConfigs) ? settings.decryptConfigs : []
+  )
+    .map(normalizeDecryptKey)
+    .filter(Boolean);
+
+  const swaggerConfigs = getSwaggerConfigs();
+  const swaggerResult = mergeById(
+    swaggerConfigs,
+    swaggerIncoming,
+    (c) => `${c.base}${c.suffix}`,
+  );
+  saveJSON(CONFIG.STORAGE_KEYS.SWAGGER_CONFIGS, swaggerConfigs);
+
+  const decryptKeys = getDecryptKeys();
+  const keyResult = mergeById(
+    decryptKeys,
+    keysIncoming,
+    (k) => `${k.algorithm}:${k.key}`,
+  );
+  saveJSON(CONFIG.STORAGE_KEYS.DECRYPT_CONFIGS, decryptKeys);
+
+  if (typeof settings.decryptEnabled === "boolean") {
+    localStorage.setItem(
+      CONFIG.STORAGE_KEYS.DECRYPT_ENABLED,
+      String(settings.decryptEnabled),
+    );
+    decryptEnabledEl.checked = settings.decryptEnabled;
+    decryptOptionsEl.classList.toggle(
+      "decrypt-options--hidden",
+      !settings.decryptEnabled,
+    );
+  }
+
+  if (typeof settings.decryptField === "string" && settings.decryptField.trim()) {
+    const field = settings.decryptField.trim();
+    localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD, field);
+    decryptFieldEl.value = field;
+  }
+
+  renderSwaggerList();
+  renderDecryptKeyList();
+
+  const added = swaggerResult.added + keyResult.added;
+  const updated = swaggerResult.updated + keyResult.updated;
+  showToast(`导入完成：新增 ${added} 项，更新 ${updated} 项`);
+}
+
+exportSettingsBtn.addEventListener("click", exportSettings);
+
+importSettingsBtn.addEventListener("click", () => {
+  importSettingsInputEl.value = "";
+  importSettingsInputEl.click();
+});
+
+importSettingsInputEl.addEventListener("change", async () => {
+  const file = importSettingsInputEl.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    importSettings(JSON.parse(text));
+  } catch {
+    showToast("文件解析失败，请确认是有效的 JSON");
+  }
+});
