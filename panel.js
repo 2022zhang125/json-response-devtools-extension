@@ -27,6 +27,10 @@ let activeJsonText = "";
 let activeJsonData = null;
 let activeProcessedData = null;
 
+// 点击接口名跳转 Swagger 的开关，默认开启
+let isJumpEnabled =
+  localStorage.getItem(CONFIG.STORAGE_KEYS.JUMP_ENABLED) !== "false";
+
 let searchText = "";
 let searchMatches = [];
 let currentMatchIndex = -1;
@@ -54,6 +58,11 @@ window.addEventListener("storage", (event) => {
     event.key === CONFIG.STORAGE_KEYS.API_PREFIX_STRIP
   ) {
     syncConfigToDevtools();
+  }
+
+  if (event.key === CONFIG.STORAGE_KEYS.JUMP_ENABLED) {
+    isJumpEnabled = event.newValue !== "false";
+    applyJumpStateToList();
   }
 });
 
@@ -155,9 +164,10 @@ function buildRequestItem(request) {
   const nameText = document.createElement("span");
   nameText.className = "request-name-text";
   nameText.textContent = requestApiPath;
-  nameText.title = `Open Swagger and search ${requestApiPath}`;
+  applyJumpStateToNameText(nameText, requestApiPath);
 
   nameText.addEventListener("click", (event) => {
+    if (!isJumpEnabled) return;
     event.preventDefault();
     event.stopPropagation();
     openSwaggerAndSearch(requestApiPath, request.url);
@@ -876,6 +886,20 @@ function setupClearRequests() {
   clearRequestsBtn.addEventListener("click", () => {
     clearRequests();
   });
+}
+
+// 开关在设置页，这里同步已渲染列表项的可点样式与提示
+function applyJumpStateToList() {
+  for (const el of requestListEl.querySelectorAll(".request-name-text")) {
+    applyJumpStateToNameText(el, el.textContent);
+  }
+}
+
+function applyJumpStateToNameText(el, apiPath) {
+  el.classList.toggle("is-jump-disabled", !isJumpEnabled);
+  el.title = isJumpEnabled
+    ? `Open Swagger and search ${apiPath}`
+    : "点击跳转已关闭，可在左上角开关开启";
 }
 
 function clearRequests() {

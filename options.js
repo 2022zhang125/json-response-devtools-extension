@@ -371,6 +371,8 @@ function buildExportPayload() {
     exportedAt: new Date().toISOString(),
     settings: {
       swaggerConfigs: getSwaggerConfigs(),
+      jumpEnabled:
+        localStorage.getItem(CONFIG.STORAGE_KEYS.JUMP_ENABLED) !== "false",
       decryptEnabled:
         localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true",
       decryptField:
@@ -509,6 +511,14 @@ function importSettings(payload) {
   );
   saveJSON(CONFIG.STORAGE_KEYS.DECRYPT_CONFIGS, decryptKeys);
 
+  if (typeof settings.jumpEnabled === "boolean") {
+    localStorage.setItem(
+      CONFIG.STORAGE_KEYS.JUMP_ENABLED,
+      String(settings.jumpEnabled),
+    );
+    jumpEnabledEl.checked = settings.jumpEnabled;
+  }
+
   if (typeof settings.decryptEnabled === "boolean") {
     localStorage.setItem(
       CONFIG.STORAGE_KEYS.DECRYPT_ENABLED,
@@ -534,6 +544,22 @@ function importSettings(payload) {
   const updated = swaggerResult.updated + keyResult.updated;
   showToast(`导入完成：新增 ${added} 项，更新 ${updated} 项`);
 }
+
+// ── 点击跳转开关 ────────────────────────────────────────────────────────────
+
+const jumpEnabledEl = document.getElementById("jumpEnabled");
+
+// 默认开启：仅当显式存过 "false" 才算关闭
+jumpEnabledEl.checked =
+  localStorage.getItem(CONFIG.STORAGE_KEYS.JUMP_ENABLED) !== "false";
+
+jumpEnabledEl.addEventListener("change", () => {
+  localStorage.setItem(
+    CONFIG.STORAGE_KEYS.JUMP_ENABLED,
+    String(jumpEnabledEl.checked),
+  );
+  showToast(jumpEnabledEl.checked ? "已开启点击跳转" : "已关闭点击跳转");
+});
 
 exportSettingsBtn.addEventListener("click", exportSettings);
 

@@ -471,6 +471,17 @@ body.is-resizing .resize-handle::before {
   text-decoration: underline;
 }
 
+/* 关闭点击跳转后：接口名恢复为普通文本 */
+.request-name-text.is-jump-disabled {
+  color: #57606a;
+  cursor: default;
+}
+
+.request-name-text.is-jump-disabled:hover {
+  color: #57606a;
+  text-decoration: none;
+}
+
 .request-status {
   height: 18px;
   min-width: 38px;

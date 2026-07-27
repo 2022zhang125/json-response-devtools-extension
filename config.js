@@ -23,6 +23,10 @@ const CONFIG = {
     SIDEBAR_WIDTH: "json-response-sidebar-width",
     SIDEBAR_COLLAPSED: "json-response-sidebar-collapsed",
 
+    // ── Panel behavior ───────────────────────────────────────────────────────
+    /** "true" | "false"; whether clicking an API name jumps to Swagger. */
+    JUMP_ENABLED: "json-response-jump-enabled",
+
     // ── Legacy keys (read for migration only) ────────────────────────────────
     SWAGGER_BASE: "json-response-swagger-base-url",
     SWAGGER_SUFFIX: "json-response-swagger-suffix",

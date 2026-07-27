@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Custom JSON Response Viewer",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A JetBrains-style JSON response viewer for Chrome DevTools.",
   "icons": {
     "16": "json-response-devtools-icon-512.png",

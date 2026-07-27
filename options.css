@@ -58,6 +58,21 @@ body {
   flex: none;
 }
 
+.jump-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 4px;
+  cursor: pointer;
+  user-select: none;
+  flex: none;
+}
+
+.jump-toggle-text {
+  font-size: 13px;
+  color: #24292f;
+}
+
 .sync-button {
   height: 32px;
   width: 118px;
