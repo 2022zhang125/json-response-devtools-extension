@@ -1,6 +1,15 @@
 const requests = [];
 const panelPorts = new Set();
 
+// Captured response bodies are held in memory for the lifetime of the DevTools
+// session. Without a cap a long-lived session grows unbounded and drags the
+// whole DevTools window down. panel.js applies the same cap to its own copy.
+const MAX_REQUESTS = 300;
+
+// Response bodies larger than this are dropped rather than retained — a single
+// multi-megabyte payload would freeze the JSON tree renderer anyway.
+const MAX_CONTENT_BYTES = 5 * 1024 * 1024;
+
 // URL path prefixes to capture — empty means capture all JSON requests.
 // Synced from panel via "sync-config" message.
 let urlPrefixes = [];
@@ -23,13 +32,17 @@ chrome.devtools.network.onRequestFinished.addListener((request) => {
   }
 
   request.getContent((content, encoding) => {
+    const body = content || "";
+    const oversized = body.length > MAX_CONTENT_BYTES;
+
     const record = {
       id: createRequestId(request),
       url: request.request.url,
       method: request.request.method,
       status: request.response.status,
       statusText: request.response.statusText,
-      content: content || "",
+      content: oversized ? "" : body,
+      oversized,
       encoding: encoding || "",
       resourceType: request._resourceType || "",
       createdAt: Date.now(),
@@ -40,6 +53,11 @@ chrome.devtools.network.onRequestFinished.addListener((request) => {
     record.relativeTimeText = getRelativeTimeText(record.createdAt);
 
     requests.push(record);
+
+    // Drop the oldest records once we're over the cap so memory stays flat.
+    if (requests.length > MAX_REQUESTS) {
+      requests.splice(0, requests.length - MAX_REQUESTS);
+    }
 
     notifyPanels({
       type: "request-added",
@@ -168,7 +186,7 @@ function getRelativeTimeText(createdAt) {
 
 chrome.devtools.panels.create(
   "JSON Response",
-  "json-response-devtools-icon-512.png",
+  "icons/icon-32.png",
   "panel.html",
   function () {},
 );

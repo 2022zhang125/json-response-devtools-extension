@@ -1,3 +1,6 @@
+// Injected on demand by panel.js (chrome.scripting.executeScript) into the
+// Swagger/knife4j tab it just opened. This is NOT a static content script — it
+// must never run on ordinary pages.
 (function () {
   const searchText = getSearchTextFromUrl();
 
@@ -8,56 +11,61 @@
   tryAutoSearch(searchText);
 
   function getSearchTextFromUrl() {
-    const href = window.location.href;
+    const match = window.location.href.match(/[?&]jsonResponseSearch=([^&]+)/);
 
-    const match = href.match(/[?&]jsonResponseSearch=([^&]+)/);
     if (match?.[1]) {
-      return decodeURIComponent(match[1]);
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return match[1];
+      }
     }
 
     return "";
   }
 
-  function tryAutoSearch(searchText) {
-    let count = 0;
-    const maxCount = 60;
+  // Poll for an element until it shows up, then hand it to `onFound`.
+  // Returns immediately; polling stops on success or after `maxAttempts`.
+  function waitFor(find, onFound, maxAttempts) {
+    let attempts = 0;
 
     const timer = window.setInterval(() => {
-      count++;
+      attempts++;
 
-      const input = findSwaggerSearchInput();
+      const found = find();
 
-      if (input) {
+      if (found) {
         window.clearInterval(timer);
-
-        input.focus();
-        setNativeInputValue(input, searchText);
-
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        input.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            code: "Enter",
-            bubbles: true,
-          }),
-        );
-        input.dispatchEvent(
-          new KeyboardEvent("keyup", {
-            key: "Enter",
-            code: "Enter",
-            bubbles: true,
-          }),
-        );
-
-        openMatchedMenu(searchText);
+        onFound(found);
         return;
       }
 
-      if (count >= maxCount) {
+      if (attempts >= maxAttempts) {
         window.clearInterval(timer);
       }
     }, 100);
+  }
+
+  function tryAutoSearch(searchText) {
+    waitFor(findSwaggerSearchInput, (input) => {
+      input.focus();
+      setNativeInputValue(input, searchText);
+
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+
+      for (const type of ["keydown", "keyup"]) {
+        input.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: "Enter",
+            code: "Enter",
+            bubbles: true,
+          }),
+        );
+      }
+
+      openMatchedMenu(searchText);
+    }, 60);
   }
 
   function findSwaggerSearchInput() {
@@ -78,11 +86,11 @@
   }
 
   function openMatchedMenu(apiPath) {
-    let count = 0;
-    const maxCount = 80;
+    let attempts = 0;
+    const maxAttempts = 80;
 
     const timer = window.setInterval(() => {
-      count++;
+      attempts++;
 
       const matchedLink = findMatchedKnife4jLink(apiPath);
 
@@ -98,6 +106,7 @@
         clickElement(firstMenu);
 
         const firstSubMenuLink = findFirstKnife4jSubMenuLink();
+
         if (firstSubMenuLink) {
           clickElement(firstSubMenuLink);
           window.clearInterval(timer);
@@ -105,48 +114,42 @@
         }
       }
 
-      if (count >= maxCount) {
+      if (attempts >= maxAttempts) {
         window.clearInterval(timer);
       }
     }, 100);
   }
 
-  function findMatchedKnife4jLink(apiPath) {
-    const methodName = getApiMethodName(apiPath);
-    const normalizedApiPath = normalizeText(apiPath);
-    const normalizedMethodName = normalizeText(methodName);
-
-    const links = Array.from(
+  function getKnife4jLinks() {
+    return Array.from(
       document.querySelectorAll("a.knife4j-menu-left-style[href]"),
     ).filter(isVisibleElement);
+  }
 
-    const exactPathMatched = links.find((link) => {
-      const href = decodeURIComponent(link.getAttribute("href") || "");
-      return normalizeText(href).includes(normalizedApiPath);
-    });
+  function findMatchedKnife4jLink(apiPath) {
+    const normalizedApiPath = normalizeText(apiPath);
+    const normalizedMethodName = normalizeText(getApiMethodName(apiPath));
 
-    if (exactPathMatched) {
-      return exactPathMatched;
-    }
+    const links = getKnife4jLinks();
 
-    const methodMatched = links.find((link) => {
-      const href = decodeURIComponent(link.getAttribute("href") || "");
-      return normalizeText(href).includes(normalizedMethodName);
-    });
+    const hrefOf = (link) => {
+      const raw = link.getAttribute("href") || "";
+      try {
+        return normalizeText(decodeURIComponent(raw));
+      } catch {
+        return normalizeText(raw);
+      }
+    };
 
-    if (methodMatched) {
-      return methodMatched;
-    }
-
-    return null;
+    return (
+      links.find((link) => hrefOf(link).includes(normalizedApiPath)) ||
+      links.find((link) => hrefOf(link).includes(normalizedMethodName)) ||
+      null
+    );
   }
 
   function findFirstKnife4jSubMenuLink() {
-    const links = Array.from(
-      document.querySelectorAll("a.knife4j-menu-left-style[href]"),
-    ).filter(isVisibleElement);
-
-    return links[0] || null;
+    return getKnife4jLinks()[0] || null;
   }
 
   function getApiMethodName(apiPath) {
@@ -156,93 +159,13 @@
     return parts[parts.length - 1] || path;
   }
 
-  function findMatchedMenuItem(apiPath) {
-    const normalizedApiPath = normalizeText(apiPath);
-
-    const candidates = [
-      ...document.querySelectorAll(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden) *",
-      ),
-      ...document.querySelectorAll(".ant-menu-item"),
-      ...document.querySelectorAll(".ant-tree-node-content-wrapper"),
-      ...document.querySelectorAll("[role='treeitem']"),
-      ...document.querySelectorAll("[role='menuitem']"),
-      ...document.querySelectorAll("li"),
-      ...document.querySelectorAll("a"),
-      ...document.querySelectorAll("span"),
-      ...document.querySelectorAll("div"),
-    ];
-
-    const exactMatched = candidates.find((element) => {
-      if (!isVisibleElement(element)) {
-        return false;
-      }
-
-      const text = normalizeText(element.textContent || "");
-      return text === normalizedApiPath;
-    });
-
-    if (exactMatched) {
-      return getClickableElement(exactMatched);
-    }
-
-    const includedMatched = candidates.find((element) => {
-      if (!isVisibleElement(element)) {
-        return false;
-      }
-
-      const text = normalizeText(element.textContent || "");
-      return text.includes(normalizedApiPath);
-    });
-
-    return includedMatched ? getClickableElement(includedMatched) : null;
-  }
-
   function findFirstExpandableMenu() {
     const candidates = [
       ...document.querySelectorAll(".knife4j-menu .ant-menu-submenu-title"),
       ...document.querySelectorAll(".ant-menu-submenu-title"),
     ];
 
-    return findVisibleElement(candidates);
-  }
-
-  function findFirstClickableSubMenu() {
-    const candidates = [
-      ...document.querySelectorAll(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-      ),
-      ...document.querySelectorAll(".ant-menu-item"),
-      ...document.querySelectorAll(".ant-tree-node-content-wrapper"),
-      ...document.querySelectorAll("[role='treeitem']"),
-      ...document.querySelectorAll("[role='menuitem']"),
-      ...document.querySelectorAll("li"),
-      ...document.querySelectorAll("a"),
-    ];
-
-    return findVisibleElement(
-      candidates.filter((element) => {
-        const text = normalizeText(element.textContent || "");
-        return Boolean(text);
-      }),
-    );
-  }
-
-  function getClickableElement(element) {
-    return (
-      element.closest(".ant-select-item-option") ||
-      element.closest(".ant-menu-item") ||
-      element.closest(".ant-tree-node-content-wrapper") ||
-      element.closest("[role='treeitem']") ||
-      element.closest("[role='menuitem']") ||
-      element.closest("li") ||
-      element.closest("a") ||
-      element
-    );
-  }
-
-  function findVisibleElement(elements) {
-    return elements.find(isVisibleElement) || null;
+    return candidates.find(isVisibleElement) || null;
   }
 
   function isVisibleElement(element) {
@@ -251,11 +174,14 @@
     }
 
     const rect = element.getBoundingClientRect();
+
+    if (rect.width <= 0 || rect.height <= 0) {
+      return false;
+    }
+
     const style = window.getComputedStyle(element);
 
     return (
-      rect.width > 0 &&
-      rect.height > 0 &&
       style.visibility !== "hidden" &&
       style.display !== "none" &&
       !element.closest(".ant-select-dropdown-hidden")
@@ -272,37 +198,15 @@
       inline: "nearest",
     });
 
-    element.dispatchEvent(
-      new MouseEvent("mouseover", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      }),
-    );
-
-    element.dispatchEvent(
-      new MouseEvent("mousedown", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      }),
-    );
-
-    element.dispatchEvent(
-      new MouseEvent("mouseup", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      }),
-    );
-
-    element.dispatchEvent(
-      new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      }),
-    );
+    for (const type of ["mouseover", "mousedown", "mouseup", "click"]) {
+      element.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        }),
+      );
+    }
 
     if (element instanceof HTMLAnchorElement) {
       const href = element.getAttribute("href") || "";

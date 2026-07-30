@@ -22,6 +22,10 @@ let activeTab = "response"; // "response" | "request"
 
 const requests = [];
 
+// Must match MAX_REQUESTS in devtools.js — both sides trim independently so the
+// list and the capture buffer stay in step without extra messages.
+const MAX_REQUESTS = 300;
+
 let activeRequest = null;
 let activeJsonText = "";
 let activeJsonData = null;
@@ -50,6 +54,8 @@ updateSearchButtons();
 setupClearRequests();
 setupSearchToggleButtons();
 setupTabs();
+setupCopyDelegation();
+warmCryptoIfNeeded();
 
 // Re-sync prefix config to devtools.js whenever settings are saved in options page
 window.addEventListener("storage", (event) => {
@@ -81,15 +87,14 @@ function syncConfigToDevtools() {
 port.onMessage.addListener((message) => {
   if (message.type === "init-requests") {
     requests.length = 0;
-    requests.push(...message.requests);
+    requests.push(...message.requests.slice(-MAX_REQUESTS));
     syncConfigToDevtools();
     renderRequestList();
     return;
   }
 
   if (message.type === "request-added") {
-    requests.push(message.request);
-    renderRequestList();
+    addRequest(message.request);
     return;
   }
 
@@ -114,37 +119,63 @@ function moveIndicatorTo(itemEl) {
   indicatorEl.style.height = `${itemEl.offsetHeight}px`;
 }
 
-function renderRequestList() {
-  const existingItems = new Map();
-  for (const el of requestListEl.children) {
-    if (el.__request) existingItems.set(el.__request, el);
+function findRequestItemEl(request) {
+  if (!request) {
+    return null;
   }
 
-  const toRemove = new Set(existingItems.keys());
+  for (const el of requestListEl.children) {
+    if (el.__request === request) {
+      return el;
+    }
+  }
+
+  return null;
+}
+
+// Full rebuild — only used when the panel first receives the backlog.
+function renderRequestList() {
+  for (const el of [...requestListEl.children]) {
+    if (el.__request) {
+      el.remove();
+    }
+  }
+
+  const fragment = document.createDocumentFragment();
 
   requests.forEach((request, index) => {
-    toRemove.delete(request);
+    const item = buildRequestItem(request);
+    item.style.animationDelay = `${Math.min(index * 18, 120)}ms`;
+    item.classList.add("request-item--enter");
+    item.classList.toggle("is-active", request === activeRequest);
+    fragment.appendChild(item);
+  });
 
-    let item = existingItems.get(request);
-
-    if (!item) {
-      item = buildRequestItem(request);
-      item.style.animationDelay = `${Math.min(index * 18, 120)}ms`;
-      item.classList.add("request-item--enter");
-      requestListEl.appendChild(item);
-    }
-
-    item.classList.toggle("is-active", request === activeRequest);  });
-
-  for (const req of toRemove) {
-    existingItems.get(req)?.remove();
-  }
+  requestListEl.appendChild(fragment);
 
   // Sync indicator to current active item (handles init & restore)
-  const activeEl = [...requestListEl.children].find(
-    (el) => el.__request === activeRequest,
-  );
-  moveIndicatorTo(activeEl || null);
+  moveIndicatorTo(findRequestItemEl(activeRequest));
+}
+
+// Incremental append — a new request only ever adds one row, so there is no
+// reason to walk and rebuild the whole list.
+function addRequest(request) {
+  requests.push(request);
+
+  const item = buildRequestItem(request);
+  item.classList.add("request-item--enter");
+  requestListEl.appendChild(item);
+
+  // Keep the DOM and the backing array trimmed together.
+  while (requests.length > MAX_REQUESTS) {
+    const dropped = requests.shift();
+    findRequestItemEl(dropped)?.remove();
+
+    if (activeRequest === dropped) {
+      activeRequest = null;
+      moveIndicatorTo(null);
+    }
+  }
 }
 
 function buildRequestItem(request) {
@@ -212,10 +243,25 @@ function buildRequestItem(request) {
 function loadRequestContent(request) {
   activeJsonText = request.content || "";
 
+  if (request.oversized) {
+    activeJsonData = null;
+    activeProcessedData = null;
+    jsonViewerEl.replaceChildren();
+
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "响应体过大，已跳过捕获（> 5 MB）。";
+    jsonViewerEl.appendChild(empty);
+
+    renderRequestViewer(request);
+    refreshSearchMatches(false);
+    return;
+  }
+
+  let parsed;
+
   try {
-    activeJsonData = JSON.parse(activeJsonText);
-    activeProcessedData = tryDecryptFields(activeJsonData);
-    renderJson(activeProcessedData);
+    parsed = JSON.parse(activeJsonText);
   } catch (error) {
     activeJsonData = null;
     activeProcessedData = null;
@@ -226,8 +272,39 @@ function loadRequestContent(request) {
     empty.textContent = `JSON parse failed: ${error.message}`;
 
     jsonViewerEl.appendChild(empty);
+
+    renderRequestViewer(request);
+    refreshSearchMatches(false);
+    return;
   }
 
+  activeJsonData = parsed;
+
+  // Decryption pulls in ~200 KB of crypto libs. If they aren't in memory yet,
+  // paint the raw JSON first so the panel stays responsive, then re-render once
+  // they land.
+  if (isDecryptWanted() && !isCryptoReady()) {
+    activeProcessedData = parsed;
+    renderJson(parsed);
+    renderRequestViewer(request);
+    refreshSearchMatches(false);
+
+    ensureCryptoLoaded().then((ready) => {
+      if (!ready || activeRequest !== request) {
+        return;
+      }
+
+      activeProcessedData = tryDecryptFields(parsed);
+      renderJson(activeProcessedData);
+      renderRequestViewer(request);
+      refreshSearchMatches(false);
+    });
+
+    return;
+  }
+
+  activeProcessedData = tryDecryptFields(parsed);
+  renderJson(activeProcessedData);
   renderRequestViewer(request);
   refreshSearchMatches(false);
 }
@@ -271,11 +348,8 @@ function createObjectLikeNode(value, key, openToken, closeToken, summary) {
   const summaryElement = createHighlightedSpan("json-summary", summary);
   summaryElement.title = "Double-click to copy this object or array";
 
-  summaryElement.addEventListener("dblclick", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    copyText(JSON.stringify(value, null, 2), "JSON copied");
-  });
+  // Stringified lazily on copy — doing it per node up front would be O(size²).
+  markCopyable(summaryElement, { json: value, message: "JSON copied" });
 
   line.appendChild(toggle);
 
@@ -364,11 +438,7 @@ function createKeyElement(key) {
     keyElement.appendChild(badge);
   }
 
-  keyElement.addEventListener("dblclick", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    copyText(displayKey, "Key copied");
-  });
+  markCopyable(keyElement, { text: displayKey, message: "Key copied" });
 
   return keyElement;
 }
@@ -383,65 +453,80 @@ function createPrimitiveValue(value) {
       link.href = value;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.title = "Double-click to copy value";
 
       appendHighlightedText(link, displayValue);
 
-      link.addEventListener("dblclick", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        copyText(value, "Value copied");
-      });
-
-      return link;
+      return markCopyable(link, { text: value });
     }
 
-    const stringElement = createHighlightedSpan("json-string", displayValue);
-    stringElement.title = "Double-click to copy value";
-
-    stringElement.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      copyText(value, "Value copied");
+    return markCopyable(createHighlightedSpan("json-string", displayValue), {
+      text: value,
     });
-
-    return stringElement;
   }
 
   if (typeof value === "number") {
-    const numberElement = createHighlightedSpan("json-number", String(value));
-    numberElement.title = "Double-click to copy value";
-    numberElement.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      copyText(String(value), "Value copied");
+    return markCopyable(createHighlightedSpan("json-number", String(value)), {
+      text: String(value),
     });
-    return numberElement;
   }
 
   if (typeof value === "boolean") {
-    const booleanElement = createHighlightedSpan("json-boolean", String(value));
-    booleanElement.title = "Double-click to copy value";
-    booleanElement.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      copyText(String(value), "Value copied");
+    return markCopyable(createHighlightedSpan("json-boolean", String(value)), {
+      text: String(value),
     });
-    return booleanElement;
   }
 
   if (value === null) {
-    const nullElement = createHighlightedSpan("json-null", "null");
-    nullElement.title = "Double-click to copy value";
-    nullElement.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      copyText("null", "Value copied");
+    return markCopyable(createHighlightedSpan("json-null", "null"), {
+      text: "null",
     });
-    return nullElement;
   }
 
   return createHighlightedSpan("", String(value));
+}
+
+// ── Copy-on-double-click via delegation ───────────────────────────────────────
+// A large response can produce tens of thousands of nodes. Attaching a listener
+// to each one is what used to make rendering big payloads stall, so copy targets
+// are tagged with a property instead and one listener per viewer resolves them.
+
+function markCopyable(element, { text, json, message = "Value copied" } = {}) {
+  if (json !== undefined) {
+    element.__copyJson = json;
+  } else {
+    element.__copyText = text;
+  }
+
+  element.__copyMessage = message;
+
+  if (!element.title) {
+    element.title = "Double-click to copy";
+  }
+
+  return element;
+}
+
+function setupCopyDelegation() {
+  for (const root of [jsonViewerEl, requestViewerEl]) {
+    root.addEventListener("dblclick", (event) => {
+      for (let el = event.target; el && el !== root; el = el.parentElement) {
+        const hasJson = el.__copyJson !== undefined;
+
+        if (!hasJson && el.__copyText === undefined) {
+          continue;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        copyText(
+          hasJson ? JSON.stringify(el.__copyJson, null, 2) : el.__copyText,
+          el.__copyMessage || "Copied",
+        );
+        return;
+      }
+    });
+  }
 }
 
 function createSpan(className, text) {
@@ -635,18 +720,49 @@ function rerenderActiveView() {
   refreshSearchMatches(false);
 }
 
-searchInputEl.addEventListener("input", () => {
-  searchText = searchInputEl.value;
-  currentMatchIndex = 0;
+// Each keystroke re-highlights by rebuilding the whole tree, so coalesce bursts
+// of typing into a single render.
+const SEARCH_DEBOUNCE_MS = 140;
+let searchDebounceId = 0;
 
+function applySearchText(value) {
+  searchText = value;
+  currentMatchIndex = 0;
   rerenderActiveView();
-});
+}
+
+function scheduleSearchRender() {
+  window.clearTimeout(searchDebounceId);
+
+  const value = searchInputEl.value;
+  searchDebounceId = window.setTimeout(
+    () => applySearchText(value),
+    SEARCH_DEBOUNCE_MS,
+  );
+}
+
+function flushPendingSearchRender() {
+  if (!searchDebounceId) {
+    return;
+  }
+
+  window.clearTimeout(searchDebounceId);
+  searchDebounceId = 0;
+
+  if (searchText !== searchInputEl.value) {
+    applySearchText(searchInputEl.value);
+  }
+}
+
+searchInputEl.addEventListener("input", scheduleSearchRender);
 
 searchInputEl.addEventListener("keydown", (event) => {
   event.stopPropagation();
 
   if (event.key === "Enter") {
     event.preventDefault();
+    // Don't jump against a stale match list if the debounce hasn't fired yet.
+    flushPendingSearchRender();
     goToSearchMatch(event.shiftKey ? -1 : 1);
     return;
   }
@@ -654,7 +770,10 @@ searchInputEl.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
 
-    if (searchText) {
+    if (searchText || searchInputEl.value) {
+      window.clearTimeout(searchDebounceId);
+      searchDebounceId = 0;
+
       searchText = "";
       searchInputEl.value = "";
       currentMatchIndex = -1;
@@ -667,10 +786,12 @@ searchInputEl.addEventListener("keydown", (event) => {
 });
 
 prevBtn.addEventListener("click", () => {
+  flushPendingSearchRender();
   goToSearchMatch(-1);
 });
 
 nextBtn.addEventListener("click", () => {
+  flushPendingSearchRender();
   goToSearchMatch(1);
 });
 
@@ -962,9 +1083,56 @@ function openSwaggerAndSearch(displayPath, originalUrl) {
     .writeText(displayPath)
     .catch(() => {})
     .finally(() => {
-      chrome.tabs.create({ url: swaggerUrl });
+      chrome.tabs.create({ url: swaggerUrl }, (tab) => {
+        if (tab?.id !== undefined) {
+          injectSwaggerHelperOnLoad(tab.id);
+        }
+      });
       showToast(`Opening Swagger: ${displayPath}`);
     });
+}
+
+// The Swagger auto-search helper used to be a content script matching every
+// http(s) page, which cost a script fetch + parse on every navigation in the
+// browser. It is now injected only into the tab we just opened, once it loads.
+function injectSwaggerHelperOnLoad(tabId) {
+  const INJECT_TIMEOUT_MS = 30000;
+
+  const cleanup = () => {
+    chrome.tabs.onUpdated.removeListener(onUpdated);
+    chrome.tabs.onRemoved.removeListener(onRemoved);
+    window.clearTimeout(timeoutId);
+  };
+
+  const timeoutId = window.setTimeout(cleanup, INJECT_TIMEOUT_MS);
+
+  function onRemoved(removedTabId) {
+    if (removedTabId === tabId) {
+      cleanup();
+    }
+  }
+
+  function onUpdated(updatedTabId, changeInfo) {
+    if (updatedTabId !== tabId || changeInfo.status !== "complete") {
+      return;
+    }
+
+    cleanup();
+
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        files: ["swagger-content.js"],
+      },
+      () => {
+        // Swallow "cannot access contents of the page" etc. — nothing to do.
+        void chrome.runtime.lastError;
+      },
+    );
+  }
+
+  chrome.tabs.onUpdated.addListener(onUpdated);
+  chrome.tabs.onRemoved.addListener(onRemoved);
 }
 
 function buildSwaggerUrl(base, suffix, apiPath) {
@@ -1024,17 +1192,74 @@ function getAllPrefixList() {
   return list;
 }
 
+// ── Lazy crypto loading ───────────────────────────────────────────────────────
+// lib/crypto-js.js + lib/sm4.js are ~200 KB of script that used to be parsed on
+// every DevTools panel open, even for users who never enable decryption. They
+// are now fetched on first actual use.
+
+let cryptoLoadPromise = null;
+
+function isCryptoReady() {
+  return typeof CryptoJS !== "undefined" && typeof sm4 !== "undefined";
+}
+
+// True when the user has decryption turned on AND has at least one key set up.
+function isDecryptWanted() {
+  return (
+    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true" &&
+    getDecryptKeys().length > 0
+  );
+}
+
+function ensureCryptoLoaded() {
+  if (isCryptoReady()) {
+    return Promise.resolve(true);
+  }
+
+  if (!cryptoLoadPromise) {
+    cryptoLoadPromise = Promise.all([
+      loadScriptOnce("lib/crypto-js.js"),
+      loadScriptOnce("lib/sm4.js"),
+    ])
+      .then(() => isCryptoReady())
+      .catch(() => false);
+  }
+
+  return cryptoLoadPromise;
+}
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+// If decryption is already configured, warm the libs while the panel is idle so
+// the first selected request doesn't flash undecrypted content.
+function warmCryptoIfNeeded() {
+  if (!isDecryptWanted() || isCryptoReady()) {
+    return;
+  }
+
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(() => ensureCryptoLoaded(), { timeout: 2000 });
+  } else {
+    window.setTimeout(() => ensureCryptoLoaded(), 0);
+  }
+}
+
 // ── Decrypt helpers ───────────────────────────────────────────────────────────
 
 function tryDecryptFields(data) {
   if (!data || typeof data !== "object") return data;
 
-  const enabled =
-    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true";
-  if (!enabled) return data;
+  if (!isDecryptWanted() || !isCryptoReady()) return data;
 
   const keys = getDecryptKeys();
-  if (keys.length === 0) return data;
 
   const fieldRaw =
     localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD) || "data";
@@ -1102,14 +1327,9 @@ function getDecryptKeys() {
 function tryDecryptPayload(data) {
   if (!data || typeof data !== "object") return data;
 
-  const enabled =
-    localStorage.getItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED) === "true";
-  if (!enabled) return data;
+  if (!isDecryptWanted() || !isCryptoReady()) return data;
 
-  const keys = getDecryptKeys();
-  if (keys.length === 0) return data;
-
-  return decryptAllStringFields(data, keys);
+  return decryptAllStringFields(data, getDecryptKeys());
 }
 
 function decryptAllStringFields(obj, keys) {
@@ -1300,12 +1520,10 @@ function makeKVRow(key, value) {
 
   const k = createHighlightedSpan("req-kv-key", String(key ?? ""));
 
-  const v = createHighlightedSpan("req-kv-value", String(value ?? ""));
-  v.title = "Double-click to copy";
-  v.addEventListener("dblclick", (e) => {
-    e.preventDefault();
-    copyText(value, "Copied");
-  });
+  const v = markCopyable(
+    createHighlightedSpan("req-kv-value", String(value ?? "")),
+    { text: String(value ?? ""), message: "Copied" },
+  );
 
   row.append(k, v);
   return row;

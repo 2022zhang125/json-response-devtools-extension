@@ -153,16 +153,16 @@ const CONFIG = {
 
 ## 打包发布
 
-使用 PowerShell 调用 .NET API 打包，保留 `lib/` 子目录结构：
+使用 PowerShell 调用 .NET API 打包，保留 `lib/` 与 `icons/` 子目录结构：
 
 ```powershell
 Add-Type -Assembly System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::Open('release.zip', 'Create')
-# 根目录文件 + lib/ 子目录文件依次添加
+# 根目录文件 + lib/、icons/ 子目录文件依次添加
 $zip.Dispose()
 ```
 
-> 不要使用 `Compress-Archive`——它会把子目录文件打平到根目录，导致 `lib/crypto-js.js` 等库无法加载，解密功能失效。
+> 不要使用 `Compress-Archive`——它会把子目录文件打平到根目录，导致 `lib/crypto-js.js` 无法加载（解密功能失效）、`icons/` 下的图标全部丢失。
 
 ---
 
@@ -181,8 +181,25 @@ $zip.Dispose()
 ├── options.html           # 设置页面
 ├── options.js             # 设置页逻辑（Swagger 多配置、解密多密钥管理）
 ├── options.css            # 设置页样式
-├── swagger-content.js     # 注入页面的脚本（Swagger 自动定位接口）
+├── swagger-content.js     # Swagger 自动定位接口脚本（按需注入，不是常驻内容脚本）
+├── icons/                 # 各尺寸图标（16/32/48/128；512 为源图，仅用于重新生成）
 └── lib/
-    ├── crypto-js.js       # CryptoJS（AES 加解密）
-    └── sm4.js             # sm-crypto SM4（国密加解密）
+    ├── crypto-js.js       # CryptoJS（AES 加解密，按需懒加载）
+    └── sm4.js             # sm-crypto SM4（国密加解密，按需懒加载）
 ```
+
+## 性能说明
+
+为了避免拖慢浏览器与 DevTools，扩展做了以下约束，修改代码时请勿破坏：
+
+- **`swagger-content.js` 不是常驻内容脚本。** 它只在面板打开 Swagger 标签页后，由
+  `panel.js` 通过 `chrome.scripting.executeScript` 注入到那一个标签页。若把它重新写回
+  `manifest.json` 的 `content_scripts`，每次页面导航都会多一次脚本拉取与解析。
+- **`lib/crypto-js.js` + `lib/sm4.js`（约 200 KB）由 `panel.js` 懒加载**，只在解密开关
+  打开且配置了密钥时才请求，不要在 `panel.html` 里用 `<script>` 直接引入。
+- **图标必须使用 `icons/` 下对应尺寸的文件。** 早期版本在 16/48/128 三个位置都填了同一张
+  1024×1024（1.3 MB）大图，浏览器启动时要反复解码。
+- **请求历史有上限**：`devtools.js` 与 `panel.js` 各自的 `MAX_REQUESTS`（300）必须保持一致，
+  超过 5 MB 的响应体会被跳过（`MAX_CONTENT_BYTES`）。
+- **JSON 树的复制用事件委托**（`markCopyable()` + `setupCopyDelegation()`）。不要给每个节点
+  单独 `addEventListener("dblclick")`——一个 160 KB 的响应会产生两万多个节点。

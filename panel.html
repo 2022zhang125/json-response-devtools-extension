@@ -85,8 +85,8 @@
       <div id="toast" class="toast hidden"></div>
     </div>
 
-    <script src="lib/crypto-js.js"></script>
-    <script src="lib/sm4.js"></script>
+    <!-- lib/crypto-js.js + lib/sm4.js (~200 KB) are loaded lazily by panel.js,
+         only when field decryption is switched on. See ensureCryptoLoaded(). -->
     <script src="config.js"></script>
     <script src="decrypt.js"></script>
     <script src="panel.js"></script>

@@ -2,6 +2,10 @@
 const DECRYPTOR = {
   decrypt(base64Str, algorithm, key) {
     if (!base64Str || !key) return null;
+    // The crypto libs are loaded lazily; bail out if they aren't in yet.
+    if (typeof CryptoJS === "undefined" || typeof sm4 === "undefined") {
+      return null;
+    }
     try {
       if (algorithm === "SM4") return this._sm4Decrypt(base64Str, key);
       if (algorithm === "AES") return this._aesDecrypt(base64Str, key);

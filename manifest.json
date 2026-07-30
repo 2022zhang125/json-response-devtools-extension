@@ -1,18 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Custom JSON Response Viewer",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "A JetBrains-style JSON response viewer for Chrome DevTools.",
   "icons": {
-    "16": "json-response-devtools-icon-512.png",
-    "48": "json-response-devtools-icon-512.png",
-    "128": "json-response-devtools-icon-512.png"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   "action": {
     "default_icon": {
-      "16": "json-response-devtools-icon-512.png",
-      "48": "json-response-devtools-icon-512.png",
-      "128": "json-response-devtools-icon-512.png"
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
     },
     "default_title": "Open Settings"
   },
@@ -21,13 +23,5 @@
   },
   "devtools_page": "devtools.html",
   "permissions": ["tabs", "scripting", "clipboardWrite"],
-  "host_permissions": ["<all_urls>"],
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["swagger-content.js"],
-      "run_at": "document_idle",
-      "match_about_blank": false
-    }
-  ]
+  "host_permissions": ["<all_urls>"]
 }
