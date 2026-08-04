@@ -55,7 +55,7 @@ setupClearRequests();
 setupSearchToggleButtons();
 setupTabs();
 setupCopyDelegation();
-warmCryptoIfNeeded();
+setupUpdateCheck();
 
 // Re-sync prefix config to devtools.js whenever settings are saved in options page
 window.addEventListener("storage", (event) => {
@@ -90,11 +90,39 @@ port.onMessage.addListener((message) => {
     requests.push(...message.requests.slice(-MAX_REQUESTS));
     syncConfigToDevtools();
     renderRequestList();
+
+    if (requests.length > 0) {
+      warmCryptoOnFirstUse();
+    }
+
     return;
   }
 
   if (message.type === "request-added") {
     addRequest(message.request);
+    return;
+  }
+
+  // Reply to an on-demand body fetch. Cached onto the record so re-selecting a
+  // row doesn't go back across the port.
+  if (message.type === "request-content") {
+    const record = requests.find((item) => item.id === message.id);
+
+    if (!record) {
+      return;
+    }
+
+    if (message.ok) {
+      record.content = message.content;
+      record.encoding = message.encoding || "";
+    } else {
+      record.contentError = message.reason;
+    }
+
+    if (activeRequest === record) {
+      renderActiveContent(record);
+    }
+
     return;
   }
 
@@ -160,6 +188,7 @@ function renderRequestList() {
 // Incremental append — a new request only ever adds one row, so there is no
 // reason to walk and rebuild the whole list.
 function addRequest(request) {
+  warmCryptoOnFirstUse();
   requests.push(request);
 
   const item = buildRequestItem(request);
@@ -240,23 +269,61 @@ function buildRequestItem(request) {
   return item;
 }
 
+// Records arrive as metadata only — devtools.js no longer pays for a body it
+// may never be asked for. Selecting a row is what triggers the fetch.
 function loadRequestContent(request) {
-  activeJsonText = request.content || "";
+  renderRequestViewer(request);
+  renderActiveContent(request);
 
-  if (request.oversized) {
-    activeJsonData = null;
-    activeProcessedData = null;
-    jsonViewerEl.replaceChildren();
+  const needsFetch =
+    !request.oversized &&
+    request.content === undefined &&
+    request.contentError === undefined;
 
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "响应体过大，已跳过捕获（> 5 MB）。";
-    jsonViewerEl.appendChild(empty);
+  if (needsFetch) {
+    port.postMessage({
+      type: "request-content",
+      id: request.id,
+    });
+  }
+}
 
-    renderRequestViewer(request);
-    refreshSearchMatches(false);
+function renderActiveContent(request) {
+  if (request.oversized || request.contentError === "oversized") {
+    showViewerMessage("响应体过大，已跳过捕获（> 5 MB）。");
     return;
   }
+
+  if (request.contentError) {
+    showViewerMessage("响应体已被 DevTools 回收，重新发起该请求后可再次查看。");
+    return;
+  }
+
+  if (request.content === undefined) {
+    showViewerMessage("正在加载响应体…");
+    return;
+  }
+
+  renderResponseBody(request, request.content);
+}
+
+function showViewerMessage(text) {
+  activeJsonText = "";
+  activeJsonData = null;
+  activeProcessedData = null;
+
+  jsonViewerEl.replaceChildren();
+
+  const empty = document.createElement("div");
+  empty.className = "empty";
+  empty.textContent = text;
+  jsonViewerEl.appendChild(empty);
+
+  refreshSearchMatches(false);
+}
+
+function renderResponseBody(request, text) {
+  activeJsonText = text;
 
   let parsed;
 
@@ -273,7 +340,6 @@ function loadRequestContent(request) {
 
     jsonViewerEl.appendChild(empty);
 
-    renderRequestViewer(request);
     refreshSearchMatches(false);
     return;
   }
@@ -286,7 +352,6 @@ function loadRequestContent(request) {
   if (isDecryptWanted() && !isCryptoReady()) {
     activeProcessedData = parsed;
     renderJson(parsed);
-    renderRequestViewer(request);
     refreshSearchMatches(false);
 
     ensureCryptoLoaded().then((ready) => {
@@ -305,7 +370,6 @@ function loadRequestContent(request) {
 
   activeProcessedData = tryDecryptFields(parsed);
   renderJson(activeProcessedData);
-  renderRequestViewer(request);
   refreshSearchMatches(false);
 }
 
@@ -815,14 +879,61 @@ document.addEventListener(
       return;
     }
 
+    // Ctrl+A copies whatever the active tab is showing: the response body on
+    // the Response tab, the request payload on the Request tab.
     if (key === "a" && !isSearchFocused) {
       event.preventDefault();
       event.stopPropagation();
-      copyText(getPrettyJsonText(), "Response copied", { flash: true });
+
+      if (activeTab === "request") {
+        copyText(getPrettyRequestText(), "Request copied", { flash: true });
+      } else {
+        copyText(getPrettyJsonText(), "Response copied", { flash: true });
+      }
     }
   },
   true,
 );
+
+// Mirrors what the Request tab renders: the decrypted payload when decryption
+// is on, otherwise the raw body. GET requests carry no body, so their query
+// string is used instead — that's the request payload as far as the user is
+// concerned.
+function getPrettyRequestText() {
+  if (!activeRequest) {
+    return "";
+  }
+
+  const body = activeRequest.requestBody || "";
+
+  if (body) {
+    try {
+      return JSON.stringify(tryDecryptPayload(JSON.parse(body)), null, 2);
+    } catch {
+      return body;
+    }
+  }
+
+  return getQueryText(activeRequest.url);
+}
+
+function getQueryText(url) {
+  let params;
+
+  try {
+    params = new URL(url).searchParams;
+  } catch {
+    return "";
+  }
+
+  const entries = [...params.entries()];
+
+  if (entries.length === 0) {
+    return "";
+  }
+
+  return JSON.stringify(Object.fromEntries(entries), null, 2);
+}
 
 function getPrettyJsonText() {
   if (activeProcessedData) {
@@ -1077,7 +1188,7 @@ function openSwaggerAndSearch(displayPath, originalUrl) {
   } catch {}
 
   const cfg = findMatchingSwaggerConfig(originalPathname, configs);
-  const swaggerUrl = buildSwaggerUrl(cfg.base, cfg.suffix, displayPath);
+  const swaggerUrl = buildSwaggerUrl(cfg.base, cfg.suffix);
 
   navigator.clipboard
     .writeText(displayPath)
@@ -1085,7 +1196,7 @@ function openSwaggerAndSearch(displayPath, originalUrl) {
     .finally(() => {
       chrome.tabs.create({ url: swaggerUrl }, (tab) => {
         if (tab?.id !== undefined) {
-          injectSwaggerHelperOnLoad(tab.id);
+          injectSwaggerHelperOnLoad(tab.id, displayPath);
         }
       });
       showToast(`Opening Swagger: ${displayPath}`);
@@ -1095,7 +1206,7 @@ function openSwaggerAndSearch(displayPath, originalUrl) {
 // The Swagger auto-search helper used to be a content script matching every
 // http(s) page, which cost a script fetch + parse on every navigation in the
 // browser. It is now injected only into the tab we just opened, once it loads.
-function injectSwaggerHelperOnLoad(tabId) {
+function injectSwaggerHelperOnLoad(tabId, apiPath) {
   const INJECT_TIMEOUT_MS = 30000;
 
   const cleanup = () => {
@@ -1119,14 +1230,32 @@ function injectSwaggerHelperOnLoad(tabId) {
 
     cleanup();
 
+    // The API path used to ride along in the URL as ?jsonResponseSearch=…,
+    // which left the Swagger address bar stuck on
+    // doc.html#/home?jsonResponseSearch=%2Fxxx even after the menu was opened.
+    // It is now handed over as an isolated-world global, so the address bar only
+    // ever shows knife4j's own route (…#/业务接口/商家后台-商家套餐/catalog).
     chrome.scripting.executeScript(
       {
         target: { tabId },
-        files: ["swagger-content.js"],
+        func: (path) => {
+          globalThis.__JSON_RESPONSE_SEARCH__ = path;
+        },
+        args: [apiPath || ""],
       },
       () => {
         // Swallow "cannot access contents of the page" etc. — nothing to do.
         void chrome.runtime.lastError;
+
+        chrome.scripting.executeScript(
+          {
+            target: { tabId },
+            files: ["swagger-content.js"],
+          },
+          () => {
+            void chrome.runtime.lastError;
+          },
+        );
       },
     );
   }
@@ -1135,10 +1264,9 @@ function injectSwaggerHelperOnLoad(tabId) {
   chrome.tabs.onRemoved.addListener(onRemoved);
 }
 
-function buildSwaggerUrl(base, suffix, apiPath) {
+function buildSwaggerUrl(base, suffix) {
   const normalizedBase = base.replace(/\/+$/, "");
-  const encodedApiPath = encodeURIComponent(apiPath);
-  return `${normalizedBase}${suffix}?jsonResponseSearch=${encodedApiPath}`;
+  return `${normalizedBase}${suffix}`;
 }
 
 function getSwaggerConfigs() {
@@ -1240,6 +1368,22 @@ function loadScriptOnce(src) {
 
 // If decryption is already configured, warm the libs while the panel is idle so
 // the first selected request doesn't flash undecrypted content.
+//
+// Deliberately NOT run at panel load: DevTools restores the last-used panel on
+// open, so warming at init scheduled a 200 KB parse against the 2 s idle timeout
+// — landing squarely in DevTools startup. Waiting for the first captured request
+// means it only happens once the panel is actually in use.
+let cryptoWarmed = false;
+
+function warmCryptoOnFirstUse() {
+  if (cryptoWarmed) {
+    return;
+  }
+
+  cryptoWarmed = true;
+  warmCryptoIfNeeded();
+}
+
 function warmCryptoIfNeeded() {
   if (!isDecryptWanted() || isCryptoReady()) {
     return;
@@ -1250,6 +1394,23 @@ function warmCryptoIfNeeded() {
   } else {
     window.setTimeout(() => ensureCryptoLoaded(), 0);
   }
+}
+
+// ── Update check ──────────────────────────────────────────────────────────────
+// Silent, throttled by UPDATE_CHECK_INTERVAL_MS inside UPDATER. Deferred to idle
+// so a network round trip never lands in DevTools startup, and repeated on an
+// interval because a DevTools panel can stay open for days.
+
+function setupUpdateCheck() {
+  const check = () => UPDATER.checkForUpdates({ silent: true });
+
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(check, { timeout: 10000 });
+  } else {
+    window.setTimeout(check, 5000);
+  }
+
+  window.setInterval(check, CONFIG.UPDATE_CHECK_INTERVAL_MS);
 }
 
 // ── Decrypt helpers ───────────────────────────────────────────────────────────

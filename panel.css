@@ -724,7 +724,8 @@ body.is-resizing .resize-handle::before {
   pointer-events: none;
 }
 
-.app.is-copy-flash .json-viewer {
+.app.is-copy-flash .json-viewer,
+.app.is-copy-flash .request-viewer {
   animation: json-copy-flash 420ms ease;
 }
 

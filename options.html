@@ -183,12 +183,31 @@
           </div>
         </section>
 
+        <!-- ── 版本与更新 ───────────────────────────────────────────────── -->
+        <section class="settings-section">
+          <h2 class="section-title">版本与更新</h2>
+          <p class="section-desc">
+            从 GitHub Release 检查新版本。发现新版本时，DevTools 面板打开后也会自动弹窗提醒。
+          </p>
+
+          <div class="setting-item">
+            <div class="setting-row setting-row--between">
+              <div>
+                <span class="setting-label">当前版本 <span id="currentVersion">-</span></span>
+                <p class="setting-desc" id="updateStatus">尚未检查</p>
+              </div>
+              <button id="checkUpdateBtn" class="save-button">检查更新</button>
+            </div>
+          </div>
+        </section>
+
       </main>
     </div>
 
     <div id="toast" class="toast hidden"></div>
 
     <script src="config.js"></script>
+    <script src="updater.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

@@ -2,13 +2,29 @@
 // Swagger/knife4j tab it just opened. This is NOT a static content script — it
 // must never run on ordinary pages.
 (function () {
-  const searchText = getSearchTextFromUrl();
+  const searchText = getSearchText();
+
+  // Legacy links may still carry the marker in the URL — drop it so the address
+  // bar is left with knife4j's own route once the menu is opened.
+  stripSearchParamFromUrl();
 
   if (!searchText) {
     return;
   }
 
   tryAutoSearch(searchText);
+
+  // panel.js seeds this global in the same isolated world right before injecting
+  // this file; the URL form is only a fallback for older links.
+  function getSearchText() {
+    const fromGlobal = globalThis.__JSON_RESPONSE_SEARCH__;
+
+    if (typeof fromGlobal === "string" && fromGlobal) {
+      return fromGlobal;
+    }
+
+    return getSearchTextFromUrl();
+  }
 
   function getSearchTextFromUrl() {
     const match = window.location.href.match(/[?&]jsonResponseSearch=([^&]+)/);
@@ -22,6 +38,23 @@
     }
 
     return "";
+  }
+
+  function stripSearchParamFromUrl() {
+    const url = window.location.href;
+
+    if (!url.includes("jsonResponseSearch=")) {
+      return;
+    }
+
+    const cleaned = url
+      .replace(/([?&])jsonResponseSearch=[^&]*/, "$1")
+      .replace(/\?&/, "?")
+      .replace(/[?&]$/, "");
+
+    try {
+      window.history.replaceState(null, "", cleaned);
+    } catch {}
   }
 
   // Poll for an element until it shows up, then hand it to `onFound`.

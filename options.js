@@ -579,3 +579,43 @@ importSettingsInputEl.addEventListener("change", async () => {
     showToast("文件解析失败，请确认是有效的 JSON");
   }
 });
+
+// ── 版本与更新 ──────────────────────────────────────────────────────────────
+
+const currentVersionEl = document.getElementById("currentVersion");
+const updateStatusEl = document.getElementById("updateStatus");
+const checkUpdateBtn = document.getElementById("checkUpdateBtn");
+
+currentVersionEl.textContent = `v${UPDATER.getCurrentVersion()}`;
+
+checkUpdateBtn.addEventListener("click", () => {
+  checkUpdateBtn.disabled = true;
+
+  UPDATER.checkForUpdates({
+    silent: false,
+    onStatus: (state, detail) => {
+      if (state === "checking") {
+        updateStatusEl.textContent = "正在检查…";
+        return;
+      }
+
+      if (state === "latest") {
+        updateStatusEl.textContent = "已是最新版本";
+        showToast("已是最新版本");
+        return;
+      }
+
+      if (state === "update") {
+        updateStatusEl.textContent = `发现新版本 v${detail.release.version}`;
+        return;
+      }
+
+      if (state === "error") {
+        updateStatusEl.textContent = "检查失败，请稍后重试或手动访问 GitHub Release";
+        showToast("检查更新失败");
+      }
+    },
+  }).finally(() => {
+    checkUpdateBtn.disabled = false;
+  });
+});

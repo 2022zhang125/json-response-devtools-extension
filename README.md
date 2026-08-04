@@ -11,7 +11,7 @@
 - 可折叠树形结构，闭合括号 `}` / `]` 与对应开始行对齐，层次清晰
 - 双击任意 **Key**、**Value** 或 **对象/数组摘要** 直接复制内容
 - URL 类型字符串渲染为可点击链接
-- `Ctrl/Cmd + A` 一键复制当前完整响应（格式化 JSON，含解密内容）
+- `Ctrl/Cmd + A` 一键复制当前面板内容（格式化 JSON，含解密内容）：Response 页复制响应体，Request 页复制请求体
 
 ### 请求详情（Tab 切换）
 右侧支持 **Response** 和 **Request** 双 Tab：
@@ -44,6 +44,13 @@
 - 跳转同时将接口路径复制到剪贴板，方便 Swagger 内二次搜索
 - 接口名的点击热区仅覆盖文字本身，选中请求时不会误触跳转
 - 提供**点击跳转开关**，可一键关闭跳转行为；关闭后接口名恢复为普通文本
+- 跳转后地址栏直接落在 knife4j 自身的接口路由（如 `doc.html#/业务接口/商家后台-商家套餐/catalog`），
+  接口路径通过注入脚本传递，不再拼接 `?jsonResponseSearch=` 污染 URL
+
+### GitHub Release 更新提醒
+- DevTools 面板打开时静默检查 GitHub Release（每 6 小时最多一次），发现新版本立即弹窗
+- 弹窗展示当前版本 → 最新版本与 Release 更新说明，可「立即更新」下载 `release.zip`，或「忽略此版本」
+- 设置页「版本与更新」区块可查看当前版本并手动检查更新
 
 ### 配置一键导入 / 导出
 - 设置页顶部按钮将全部配置（Swagger、点击跳转开关、解密开关、目标字段、密钥列表）导出为 JSON 文件
@@ -144,7 +151,7 @@ const CONFIG = {
 | `Enter` | 跳转到下一个匹配项 |
 | `Shift + Enter` | 跳转到上一个匹配项 |
 | `Esc` | 清除搜索内容 / 取消聚焦 |
-| `Ctrl/Cmd + A` | 复制当前完整 JSON 响应 |
+| `Ctrl/Cmd + A` | 复制当前面板内容：Response 页复制响应体，Request 页复制请求体（无请求体时复制 URL 查询参数） |
 | `Alt + C` | 切换区分大小写 |
 | `Alt + W` | 切换全词匹配 |
 | `Alt + R` | 切换正则表达式模式 |
@@ -182,6 +189,7 @@ $zip.Dispose()
 ├── options.js             # 设置页逻辑（Swagger 多配置、解密多密钥管理）
 ├── options.css            # 设置页样式
 ├── swagger-content.js     # Swagger 自动定位接口脚本（按需注入，不是常驻内容脚本）
+├── updater.js             # GitHub Release 更新检查与更新弹窗（面板 / 设置页共用）
 ├── icons/                 # 各尺寸图标（16/32/48/128；512 为源图，仅用于重新生成）
 └── lib/
     ├── crypto-js.js       # CryptoJS（AES 加解密，按需懒加载）

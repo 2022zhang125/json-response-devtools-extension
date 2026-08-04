@@ -1,13 +1,19 @@
 const requests = [];
 const panelPorts = new Set();
 
-// Captured response bodies are held in memory for the lifetime of the DevTools
-// session. Without a cap a long-lived session grows unbounded and drags the
-// whole DevTools window down. panel.js applies the same cap to its own copy.
+// HAR entry objects, keyed by record id. These carry getContent() so they can't
+// be cloned across the port — they stay here, and the panel asks for a body by
+// id when the user actually selects a row. Kept trimmed in lockstep with
+// `requests`.
+const harEntries = new Map();
+
+// Metadata records are held in memory for the lifetime of the DevTools session.
+// Without a cap a long-lived session grows unbounded and drags the whole
+// DevTools window down. panel.js applies the same cap to its own copy.
 const MAX_REQUESTS = 300;
 
-// Response bodies larger than this are dropped rather than retained — a single
-// multi-megabyte payload would freeze the JSON tree renderer anyway.
+// Response bodies larger than this are never fetched — a single multi-megabyte
+// payload would freeze the JSON tree renderer anyway.
 const MAX_CONTENT_BYTES = 5 * 1024 * 1024;
 
 // URL path prefixes to capture — empty means capture all JSON requests.
@@ -31,38 +37,46 @@ chrome.devtools.network.onRequestFinished.addListener((request) => {
     return;
   }
 
-  request.getContent((content, encoding) => {
-    const body = content || "";
-    const oversized = body.length > MAX_CONTENT_BYTES;
+  // No getContent() here. Pulling a response body is a cross-process round trip;
+  // doing it for every request meant a page that fires a burst of API calls while
+  // DevTools is starting up would pile that work onto the DevTools main thread
+  // before the user had even opened this panel. Bodies are now fetched on demand
+  // — see the "request-content" handler below.
+  //
+  // The HAR entry already knows the body size, so an oversized response can be
+  // flagged up front and never fetched at all.
+  const contentSize = Number(request.response.content?.size ?? 0);
 
-    const record = {
-      id: createRequestId(request),
-      url: request.request.url,
-      method: request.request.method,
-      status: request.response.status,
-      statusText: request.response.statusText,
-      content: oversized ? "" : body,
-      oversized,
-      encoding: encoding || "",
-      resourceType: request._resourceType || "",
-      createdAt: Date.now(),
-      requestHeaders: request.request.headers || [],
-      requestBody: request.request.postData?.text || "",
-    };
+  const record = {
+    id: createRequestId(request),
+    url: request.request.url,
+    method: request.request.method,
+    status: request.response.status,
+    statusText: request.response.statusText,
+    oversized: contentSize > MAX_CONTENT_BYTES,
+    resourceType: request._resourceType || "",
+    createdAt: Date.now(),
+    requestHeaders: request.request.headers || [],
+    requestBody: request.request.postData?.text || "",
+  };
 
-    record.relativeTimeText = getRelativeTimeText(record.createdAt);
+  record.relativeTimeText = getRelativeTimeText(record.createdAt);
 
-    requests.push(record);
+  requests.push(record);
+  harEntries.set(record.id, request);
 
-    // Drop the oldest records once we're over the cap so memory stays flat.
-    if (requests.length > MAX_REQUESTS) {
-      requests.splice(0, requests.length - MAX_REQUESTS);
+  // Drop the oldest records once we're over the cap so memory stays flat.
+  if (requests.length > MAX_REQUESTS) {
+    const dropped = requests.splice(0, requests.length - MAX_REQUESTS);
+
+    for (const item of dropped) {
+      harEntries.delete(item.id);
     }
+  }
 
-    notifyPanels({
-      type: "request-added",
-      request: record,
-    });
+  notifyPanels({
+    type: "request-added",
+    request: record,
   });
 });
 
@@ -81,6 +95,7 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener((message) => {
     if (message.type === "clear-requests") {
       requests.length = 0;
+      harEntries.clear();
 
       notifyPanels({
         type: "requests-cleared",
@@ -89,6 +104,10 @@ chrome.runtime.onConnect.addListener((port) => {
 
     if (message.type === "sync-config") {
       urlPrefixes = Array.isArray(message.prefixes) ? message.prefixes : [];
+    }
+
+    if (message.type === "request-content") {
+      sendContent(port, message.id);
     }
   });
 
@@ -99,11 +118,60 @@ chrome.runtime.onConnect.addListener((port) => {
 
 function notifyPanels(message) {
   for (const port of [...panelPorts]) {
-    try {
-      port.postMessage(message);
-    } catch {
-      panelPorts.delete(port);
-    }
+    postToPort(port, message);
+  }
+}
+
+function postToPort(port, message) {
+  try {
+    port.postMessage(message);
+  } catch {
+    panelPorts.delete(port);
+  }
+}
+
+// Fetch one response body on demand. DevTools keeps bodies around for the
+// session, but it does evict them under memory pressure — a miss is reported as
+// "gone" rather than as an empty body so the panel can say something useful.
+function sendContent(port, id) {
+  const fail = (reason) =>
+    postToPort(port, { type: "request-content", id, ok: false, reason });
+
+  const entry = harEntries.get(id);
+
+  if (!entry) {
+    fail("gone");
+    return;
+  }
+
+  if (requests.find((item) => item.id === id)?.oversized) {
+    fail("oversized");
+    return;
+  }
+
+  try {
+    entry.getContent((content, encoding) => {
+      if (content == null) {
+        fail("gone");
+        return;
+      }
+
+      // Fallback for when the HAR entry reported no usable size up front.
+      if (content.length > MAX_CONTENT_BYTES) {
+        fail("oversized");
+        return;
+      }
+
+      postToPort(port, {
+        type: "request-content",
+        id,
+        ok: true,
+        content,
+        encoding: encoding || "",
+      });
+    });
+  } catch {
+    fail("gone");
   }
 }
 
