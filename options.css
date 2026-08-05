@@ -576,3 +576,41 @@ body {
   display: block;
 }
 
+
+/* ── 设置文件（更新后自动恢复） ───────────────────────────────────────────── */
+
+.settings-file-name {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  color: #57606a;
+  font-size: 11px;
+  font-weight: 400;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  vertical-align: middle;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.settings-file-alert {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid #d4a72c66;
+  border-radius: 8px;
+  background: #fff8c5;
+  color: #7d4e00;
+  font-size: 12px;
+  line-height: 1.6;
+}

@@ -171,6 +171,7 @@ function saveSwaggerConfig() {
   saveJSON(CONFIG.STORAGE_KEYS.SWAGGER_CONFIGS, configs);
   closeSwaggerForm();
   renderSwaggerList();
+  markSettingsChanged();
   showToast("已保存");
 }
 
@@ -178,6 +179,7 @@ function deleteSwaggerConfig(id) {
   const configs = getSwaggerConfigs().filter((c) => c.id !== id);
   saveJSON(CONFIG.STORAGE_KEYS.SWAGGER_CONFIGS, configs);
   renderSwaggerList();
+  markSettingsChanged();
   showToast("已删除");
 }
 
@@ -218,6 +220,7 @@ decryptEnabledEl.addEventListener("change", () => {
   const enabled = decryptEnabledEl.checked;
   localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_ENABLED, String(enabled));
   decryptOptionsEl.classList.toggle("decrypt-options--hidden", !enabled);
+  markSettingsChanged();
 });
 
 // ── Target field ──────────────────────────────────────────────────────────────
@@ -228,6 +231,7 @@ decryptFieldEl.value =
 saveDecryptFieldBtn.addEventListener("click", () => {
   const value = decryptFieldEl.value.trim() || "data";
   localStorage.setItem(CONFIG.STORAGE_KEYS.DECRYPT_FIELD, value);
+  markSettingsChanged();
   showToast("已保存");
 });
 
@@ -324,6 +328,7 @@ function saveDecryptKey() {
   saveJSON(CONFIG.STORAGE_KEYS.DECRYPT_CONFIGS, keys);
   closeDecryptKeyForm();
   renderDecryptKeyList();
+  markSettingsChanged();
   showToast("已保存");
 }
 
@@ -331,6 +336,7 @@ function deleteDecryptKey(id) {
   const keys = getDecryptKeys().filter((k) => k.id !== id);
   saveJSON(CONFIG.STORAGE_KEYS.DECRYPT_CONFIGS, keys);
   renderDecryptKeyList();
+  markSettingsChanged();
   showToast("已删除");
 }
 
@@ -470,15 +476,16 @@ function mergeById(existing, incoming, identity) {
   return { added, updated };
 }
 
-function importSettings(payload) {
+// silent=true 用于设置文件的自动恢复：不弹 toast，只用返回值表示是否成功。
+function importSettings(payload, { silent = false } = {}) {
   if (!payload || typeof payload !== "object" || !payload.settings) {
-    showToast("文件格式不正确");
-    return;
+    if (!silent) showToast("文件格式不正确");
+    return false;
   }
 
   if (payload.type !== EXPORT_TYPE) {
-    showToast("这不是本扩展导出的配置文件");
-    return;
+    if (!silent) showToast("这不是本扩展导出的配置文件");
+    return false;
   }
 
   const settings = payload.settings;
@@ -542,7 +549,12 @@ function importSettings(payload) {
 
   const added = swaggerResult.added + keyResult.added;
   const updated = swaggerResult.updated + keyResult.updated;
-  showToast(`导入完成：新增 ${added} 项，更新 ${updated} 项`);
+
+  if (!silent) {
+    showToast(`导入完成：新增 ${added} 项，更新 ${updated} 项`);
+  }
+
+  return true;
 }
 
 // ── 点击跳转开关 ────────────────────────────────────────────────────────────
@@ -558,6 +570,7 @@ jumpEnabledEl.addEventListener("change", () => {
     CONFIG.STORAGE_KEYS.JUMP_ENABLED,
     String(jumpEnabledEl.checked),
   );
+  markSettingsChanged();
   showToast(jumpEnabledEl.checked ? "已开启点击跳转" : "已关闭点击跳转");
 });
 
@@ -574,7 +587,10 @@ importSettingsInputEl.addEventListener("change", async () => {
 
   try {
     const text = await file.text();
-    importSettings(JSON.parse(text));
+
+    if (importSettings(JSON.parse(text))) {
+      markSettingsChanged();
+    }
   } catch {
     showToast("文件解析失败，请确认是有效的 JSON");
   }
@@ -619,3 +635,273 @@ checkUpdateBtn.addEventListener("click", () => {
     checkUpdateBtn.disabled = false;
   });
 });
+
+// ── 设置文件（更新后自动恢复） ────────────────────────────────────────────────
+// 扩展的 localStorage 绑定在扩展 ID 上：只要从新目录加载（或先移除再加载），
+// Chrome 就当成另一个扩展，配置全部清空。绑定磁盘上的一个 JSON 文件后，配置
+// 变更会自动写回文件，新装后再指向同一个文件即可把个性化设置全部找回。
+
+const settingsFileNameEl = document.getElementById("settingsFileName");
+const settingsFileStatusEl = document.getElementById("settingsFileStatus");
+const settingsFileAlertEl = document.getElementById("settingsFileAlert");
+const settingsFileBoundActionsEl = document.getElementById("settingsFileBoundActions");
+const bindSettingsFileBtn = document.getElementById("bindSettingsFileBtn");
+const createSettingsFileBtn = document.getElementById("createSettingsFileBtn");
+const restoreSettingsFileBtn = document.getElementById("restoreSettingsFileBtn");
+const saveSettingsFileBtn = document.getElementById("saveSettingsFileBtn");
+const unbindSettingsFileBtn = document.getElementById("unbindSettingsFileBtn");
+
+let settingsFileHandle = null;
+let settingsFilePermission = "prompt";
+let settingsFileSyncTimer = 0;
+
+function hasAnySettings() {
+  return getSwaggerConfigs().length > 0 || getDecryptKeys().length > 0;
+}
+
+// 任何配置写入后调用：把最新配置刷回绑定的文件（合并写，延迟防抖）
+function markSettingsChanged() {
+  renderSettingsFileState();
+
+  if (!settingsFileHandle || settingsFilePermission !== "granted") {
+    return;
+  }
+
+  window.clearTimeout(settingsFileSyncTimer);
+  settingsFileSyncTimer = window.setTimeout(() => {
+    void writeSettingsFile({ silent: true });
+  }, 400);
+}
+
+async function writeSettingsFile({ silent = false } = {}) {
+  if (!settingsFileHandle) {
+    return false;
+  }
+
+  try {
+    await SETTINGS_FILE.writeJson(settingsFileHandle, buildExportPayload());
+    localStorage.setItem(
+      CONFIG.STORAGE_KEYS.SETTINGS_FILE_LAST_SYNC,
+      new Date().toISOString(),
+    );
+
+    renderSettingsFileState();
+
+    if (!silent) {
+      showToast("已写入设置文件");
+    }
+
+    return true;
+  } catch {
+    settingsFilePermission = "prompt";
+    renderSettingsFileState("写入失败，可能是文件被移动或权限已过期，请重新选择设置文件。");
+
+    if (!silent) {
+      showToast("写入设置文件失败");
+    }
+
+    return false;
+  }
+}
+
+async function restoreFromSettingsFile({ silent = false } = {}) {
+  if (!settingsFileHandle) {
+    return false;
+  }
+
+  let payload;
+
+  try {
+    payload = await SETTINGS_FILE.readJson(settingsFileHandle);
+  } catch {
+    renderSettingsFileState("读取失败，文件可能已被移动或删除，请重新选择设置文件。");
+
+    if (!silent) {
+      showToast("读取设置文件失败");
+    }
+
+    return false;
+  }
+
+  const imported = importSettings(payload, { silent });
+
+  if (imported) {
+    localStorage.setItem(
+      CONFIG.STORAGE_KEYS.SETTINGS_FILE_LAST_SYNC,
+      new Date().toISOString(),
+    );
+  }
+
+  renderSettingsFileState();
+  return imported;
+}
+
+function renderSettingsFileState(overrideStatus) {
+  const name = settingsFileHandle
+    ? settingsFileHandle.name ||
+      localStorage.getItem(CONFIG.STORAGE_KEYS.SETTINGS_FILE_NAME) ||
+      "settings.json"
+    : "";
+
+  settingsFileNameEl.textContent = name || "未绑定";
+  settingsFileBoundActionsEl.classList.toggle("hidden", !settingsFileHandle);
+
+  const lastSync = localStorage.getItem(CONFIG.STORAGE_KEYS.SETTINGS_FILE_LAST_SYNC);
+  const lastSyncText = lastSync
+    ? `最近同步：${new Date(lastSync).toLocaleString()}`
+    : "尚未同步";
+
+  if (overrideStatus) {
+    settingsFileStatusEl.textContent = overrideStatus;
+  } else if (!SETTINGS_FILE.isSupported()) {
+    settingsFileStatusEl.textContent =
+      "当前浏览器不支持文件绑定，请用页面顶部的「一键导出 / 导入 JSON」备份配置。";
+  } else if (!settingsFileHandle) {
+    settingsFileStatusEl.textContent =
+      "尚未绑定设置文件，配置只保存在当前扩展中，换目录加载或重装后会丢失。";
+  } else if (settingsFilePermission === "granted") {
+    settingsFileStatusEl.textContent = `配置变更会自动写入该文件 · ${lastSyncText}`;
+  } else {
+    settingsFileStatusEl.textContent =
+      "浏览器需要你再次确认文件访问权限：点击「从文件恢复」或「立即写入文件」即可授权。";
+  }
+
+  settingsFileAlertEl.classList.toggle(
+    "hidden",
+    hasAnySettings() || Boolean(settingsFileHandle),
+  );
+}
+
+// 授权必须发生在用户手势里，所以所有需要权限的按钮都先走这一步。
+async function ensureSettingsFileAccess() {
+  if (!settingsFileHandle) {
+    return false;
+  }
+
+  settingsFilePermission = await SETTINGS_FILE.ensurePermission(settingsFileHandle, {
+    request: true,
+  });
+
+  renderSettingsFileState();
+
+  if (settingsFilePermission !== "granted") {
+    showToast("未获得文件访问权限");
+    return false;
+  }
+
+  return true;
+}
+
+async function bindSettingsFile(handle, { restoreFirst }) {
+  settingsFileHandle = handle;
+  settingsFilePermission = await SETTINGS_FILE.ensurePermission(handle, {
+    request: true,
+  });
+
+  if (settingsFilePermission !== "granted") {
+    showToast("未获得文件访问权限");
+    renderSettingsFileState();
+    return;
+  }
+
+  await SETTINGS_FILE.saveHandle(handle);
+  localStorage.setItem(CONFIG.STORAGE_KEYS.SETTINGS_FILE_NAME, handle.name || "");
+
+  // 已有文件先合并回本地，再把合并后的结果写回去——两边都不会丢东西。
+  if (restoreFirst) {
+    await restoreFromSettingsFile({ silent: true });
+  }
+
+  await writeSettingsFile({ silent: true });
+
+  renderSettingsFileState();
+  showToast(`已绑定设置文件：${handle.name || ""}`);
+}
+
+bindSettingsFileBtn.addEventListener("click", async () => {
+  try {
+    const handle = await SETTINGS_FILE.pickExisting();
+
+    if (handle) {
+      await bindSettingsFile(handle, { restoreFirst: true });
+    }
+  } catch (error) {
+    if (!SETTINGS_FILE.isAbortError(error)) {
+      showToast("选择文件失败");
+    }
+  }
+});
+
+createSettingsFileBtn.addEventListener("click", async () => {
+  try {
+    const handle = await SETTINGS_FILE.pickNew();
+
+    if (handle) {
+      await bindSettingsFile(handle, { restoreFirst: false });
+    }
+  } catch (error) {
+    if (!SETTINGS_FILE.isAbortError(error)) {
+      showToast("创建文件失败");
+    }
+  }
+});
+
+restoreSettingsFileBtn.addEventListener("click", async () => {
+  if (await ensureSettingsFileAccess()) {
+    await restoreFromSettingsFile();
+  }
+});
+
+saveSettingsFileBtn.addEventListener("click", async () => {
+  if (await ensureSettingsFileAccess()) {
+    await writeSettingsFile();
+  }
+});
+
+unbindSettingsFileBtn.addEventListener("click", async () => {
+  await SETTINGS_FILE.clearHandle();
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SETTINGS_FILE_NAME);
+  localStorage.removeItem(CONFIG.STORAGE_KEYS.SETTINGS_FILE_LAST_SYNC);
+
+  settingsFileHandle = null;
+  settingsFilePermission = "prompt";
+
+  renderSettingsFileState();
+  showToast("已解除绑定");
+});
+
+async function initSettingsFile() {
+  if (!SETTINGS_FILE.isSupported()) {
+    bindSettingsFileBtn.disabled = true;
+    createSettingsFileBtn.disabled = true;
+    renderSettingsFileState();
+    return;
+  }
+
+  settingsFileHandle = await SETTINGS_FILE.getHandle();
+
+  if (!settingsFileHandle) {
+    renderSettingsFileState();
+    return;
+  }
+
+  settingsFilePermission = await SETTINGS_FILE.ensurePermission(settingsFileHandle);
+
+  if (settingsFilePermission === "granted") {
+    // 配置为空说明这是刚更新/重装后的全新安装，直接恢复；否则只把本地配置
+    // 刷回文件，避免把用户刚删掉的配置从旧文件里合并回来。
+    if (hasAnySettings()) {
+      await writeSettingsFile({ silent: true });
+    } else {
+      const restored = await restoreFromSettingsFile({ silent: true });
+
+      if (restored) {
+        showToast(`已从 ${settingsFileHandle.name || "设置文件"} 恢复配置`);
+      }
+    }
+  }
+
+  renderSettingsFileState();
+}
+
+void initSettingsFile();

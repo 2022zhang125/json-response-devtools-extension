@@ -42,6 +42,12 @@ const CONFIG = {
     /** "true" | "false"; whether clicking an API name jumps to Swagger. */
     JUMP_ENABLED: "json-response-jump-enabled",
 
+    // ── Settings file (survives extension updates) ───────────────────────────
+    /** Display name of the bound settings file. */
+    SETTINGS_FILE_NAME: "json-response-settings-file-name",
+    /** ISO timestamp of the last successful write/read of that file. */
+    SETTINGS_FILE_LAST_SYNC: "json-response-settings-file-last-sync",
+
     // ── Update check ─────────────────────────────────────────────────────────
     /** Timestamp (ms) of the last GitHub Release check. */
     UPDATE_LAST_CHECK: "json-response-update-last-check",

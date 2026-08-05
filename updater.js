@@ -292,8 +292,8 @@ const UPDATER = (() => {
 
     const items = [
       release.downloadUrl
-        ? "解压 release.zip，覆盖当前扩展所在目录"
-        : "在发布页下载 release.zip 并解压，覆盖当前扩展所在目录",
+        ? "解压后覆盖原来的扩展目录（保持同一目录，配置才不会丢）"
+        : "在发布页下载安装包并解压，覆盖原来的扩展目录",
       `打开 ${EXTENSIONS_PAGE}，找到 Custom JSON Response Viewer`,
       "点击「重新加载」按钮，随后重新打开 DevTools 面板即可生效",
     ];
@@ -303,6 +303,12 @@ const UPDATER = (() => {
       item.textContent = text;
       list.appendChild(item);
     }
+
+    // 配置存在扩展 ID 名下：换目录或先移除再加载，Chrome 会当成另一个扩展。
+    const note = document.createElement("div");
+    note.className = "updater-steps-note";
+    note.textContent =
+      "别「移除」旧扩展、也别装到新目录：Chrome 会当成另一个扩展，Swagger 与解密等配置会被清空。已在设置页绑定「设置文件」的话，更新后重新指向该文件即可一键恢复。";
 
     const copyBtn = document.createElement("button");
     copyBtn.type = "button";
@@ -319,7 +325,7 @@ const UPDATER = (() => {
         });
     });
 
-    steps.append(title, list, copyBtn);
+    steps.append(title, list, note, copyBtn);
     return steps;
   }
 
@@ -515,6 +521,13 @@ const UPDATER = (() => {
   margin: 0;
   padding-left: 18px;
   font-size: 12px;
+}
+
+.updater-steps-note {
+  margin-top: 8px;
+  color: #7d4e00;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .updater-actions {

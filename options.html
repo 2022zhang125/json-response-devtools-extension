@@ -183,6 +183,48 @@
           </div>
         </section>
 
+        <!-- ── 设置文件 ─────────────────────────────────────────────────── -->
+        <section class="settings-section">
+          <h2 class="section-title">设置文件（更新后自动恢复）</h2>
+          <p class="section-desc">
+            绑定一个本地 JSON 文件后，配置每次变更都会自动写入该文件；扩展更新或重装导致配置清空时，
+            重新指向同一个文件即可一键找回，不用再手动导出导入。
+          </p>
+
+          <div id="settingsFileAlert" class="settings-file-alert hidden">
+            当前没有任何配置。如果这是刚更新后的新安装，选择你的设置文件即可恢复全部个性化设置。
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-row setting-row--between">
+              <div>
+                <span class="setting-label">
+                  当前设置文件
+                  <span id="settingsFileName" class="settings-file-name">未绑定</span>
+                </span>
+                <p class="setting-desc" id="settingsFileStatus">
+                  尚未绑定设置文件，配置只保存在当前扩展中。
+                </p>
+              </div>
+
+              <div class="settings-file-actions">
+                <button id="bindSettingsFileBtn" class="save-button">
+                  选择设置文件
+                </button>
+                <button id="createSettingsFileBtn" class="add-config-button add-config-button--sm">
+                  新建设置文件
+                </button>
+              </div>
+            </div>
+
+            <div id="settingsFileBoundActions" class="setting-row hidden">
+              <button id="restoreSettingsFileBtn" class="cancel-button">从文件恢复</button>
+              <button id="saveSettingsFileBtn" class="cancel-button">立即写入文件</button>
+              <button id="unbindSettingsFileBtn" class="cancel-button">解除绑定</button>
+            </div>
+          </div>
+        </section>
+
         <!-- ── 版本与更新 ───────────────────────────────────────────────── -->
         <section class="settings-section">
           <h2 class="section-title">版本与更新</h2>
@@ -208,6 +250,7 @@
 
     <script src="config.js"></script>
     <script src="updater.js"></script>
+    <script src="settings-file.js"></script>
     <script src="options.js"></script>
   </body>
 </html>
