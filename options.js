@@ -574,11 +574,55 @@ jumpEnabledEl.addEventListener("change", () => {
   showToast(jumpEnabledEl.checked ? "已开启点击跳转" : "已关闭点击跳转");
 });
 
-exportSettingsBtn.addEventListener("click", exportSettings);
+// 导出 / 导入用的就是「设置文件」本身：支持 File System Access 时顺手记住这个
+// 文件句柄，之后配置变更自动写回；否则退回一次性的下载 / <input type=file>。
+exportSettingsBtn.addEventListener("click", async () => {
+  if (!SETTINGS_FILE.isSupported()) {
+    exportSettings();
+    return;
+  }
 
-importSettingsBtn.addEventListener("click", () => {
-  importSettingsInputEl.value = "";
-  importSettingsInputEl.click();
+  const payload = buildExportPayload();
+
+  if (
+    payload.settings.swaggerConfigs.length === 0 &&
+    payload.settings.decryptConfigs.length === 0
+  ) {
+    showToast("暂无配置可导出");
+    return;
+  }
+
+  try {
+    const handle = await SETTINGS_FILE.pickNew();
+
+    if (handle) {
+      await bindSettingsFile(handle, { restoreFirst: false });
+    }
+  } catch (error) {
+    if (!SETTINGS_FILE.isAbortError(error)) {
+      showToast("导出失败");
+    }
+  }
+});
+
+importSettingsBtn.addEventListener("click", async () => {
+  if (!SETTINGS_FILE.isSupported()) {
+    importSettingsInputEl.value = "";
+    importSettingsInputEl.click();
+    return;
+  }
+
+  try {
+    const handle = await SETTINGS_FILE.pickExisting();
+
+    if (handle) {
+      await bindSettingsFile(handle, { restoreFirst: true });
+    }
+  } catch (error) {
+    if (!SETTINGS_FILE.isAbortError(error)) {
+      showToast("导入失败");
+    }
+  }
 });
 
 importSettingsInputEl.addEventListener("change", async () => {
@@ -636,19 +680,15 @@ checkUpdateBtn.addEventListener("click", () => {
   });
 });
 
-// ── 设置文件（更新后自动恢复） ────────────────────────────────────────────────
-// 扩展的 localStorage 绑定在扩展 ID 上：只要从新目录加载（或先移除再加载），
-// Chrome 就当成另一个扩展，配置全部清空。绑定磁盘上的一个 JSON 文件后，配置
-// 变更会自动写回文件，新装后再指向同一个文件即可把个性化设置全部找回。
+// ── 设置文件 ────────────────────────────────────────────────────────────────
+// 就是导出 / 导入的那份 JSON，只是多记住了文件句柄。扩展的 localStorage 绑定在
+// 扩展 ID 上：只要从新目录加载（或先移除再加载），Chrome 就当成另一个扩展，配置
+// 全部清空；记住文件后，配置变更自动写回，新装后导入同一个文件即可全部找回。
 
 const settingsFileNameEl = document.getElementById("settingsFileName");
 const settingsFileStatusEl = document.getElementById("settingsFileStatus");
 const settingsFileAlertEl = document.getElementById("settingsFileAlert");
-const settingsFileBoundActionsEl = document.getElementById("settingsFileBoundActions");
-const bindSettingsFileBtn = document.getElementById("bindSettingsFileBtn");
-const createSettingsFileBtn = document.getElementById("createSettingsFileBtn");
-const restoreSettingsFileBtn = document.getElementById("restoreSettingsFileBtn");
-const saveSettingsFileBtn = document.getElementById("saveSettingsFileBtn");
+const reauthSettingsFileBtn = document.getElementById("reauthSettingsFileBtn");
 const unbindSettingsFileBtn = document.getElementById("unbindSettingsFileBtn");
 
 let settingsFileHandle = null;
@@ -714,7 +754,7 @@ async function restoreFromSettingsFile({ silent = false } = {}) {
   try {
     payload = await SETTINGS_FILE.readJson(settingsFileHandle);
   } catch {
-    renderSettingsFileState("读取失败，文件可能已被移动或删除，请重新选择设置文件。");
+    renderSettingsFileState("读取失败，文件可能已被移动或删除，重新「一键导入 JSON」选择即可。");
 
     if (!silent) {
       showToast("读取设置文件失败");
@@ -744,7 +784,10 @@ function renderSettingsFileState(overrideStatus) {
     : "";
 
   settingsFileNameEl.textContent = name || "未绑定";
-  settingsFileBoundActionsEl.classList.toggle("hidden", !settingsFileHandle);
+
+  const needsReauth = Boolean(settingsFileHandle) && settingsFilePermission !== "granted";
+  reauthSettingsFileBtn.classList.toggle("hidden", !needsReauth);
+  unbindSettingsFileBtn.classList.toggle("hidden", !settingsFileHandle);
 
   const lastSync = localStorage.getItem(CONFIG.STORAGE_KEYS.SETTINGS_FILE_LAST_SYNC);
   const lastSyncText = lastSync
@@ -755,15 +798,15 @@ function renderSettingsFileState(overrideStatus) {
     settingsFileStatusEl.textContent = overrideStatus;
   } else if (!SETTINGS_FILE.isSupported()) {
     settingsFileStatusEl.textContent =
-      "当前浏览器不支持文件绑定，请用页面顶部的「一键导出 / 导入 JSON」备份配置。";
+      "当前浏览器不支持记住文件，「一键导出 / 导入 JSON」仍可正常使用，只是每次都要手动选择。";
   } else if (!settingsFileHandle) {
     settingsFileStatusEl.textContent =
-      "尚未绑定设置文件，配置只保存在当前扩展中，换目录加载或重装后会丢失。";
+      "尚未记住设置文件，配置只保存在当前扩展中，换目录加载或重装后会丢失；导出或导入一次即可记住。";
   } else if (settingsFilePermission === "granted") {
     settingsFileStatusEl.textContent = `配置变更会自动写入该文件 · ${lastSyncText}`;
   } else {
     settingsFileStatusEl.textContent =
-      "浏览器需要你再次确认文件访问权限：点击「从文件恢复」或「立即写入文件」即可授权。";
+      "浏览器需要你再次确认该文件的访问权限，点右侧按钮授权后即可继续自动同步。";
   }
 
   settingsFileAlertEl.classList.toggle(
@@ -815,46 +858,23 @@ async function bindSettingsFile(handle, { restoreFirst }) {
   await writeSettingsFile({ silent: true });
 
   renderSettingsFileState();
-  showToast(`已绑定设置文件：${handle.name || ""}`);
+  showToast(
+    restoreFirst
+      ? `已导入并记住该文件：${handle.name || ""}`
+      : `已导出并记住该文件：${handle.name || ""}`,
+  );
 }
 
-bindSettingsFileBtn.addEventListener("click", async () => {
-  try {
-    const handle = await SETTINGS_FILE.pickExisting();
-
-    if (handle) {
-      await bindSettingsFile(handle, { restoreFirst: true });
-    }
-  } catch (error) {
-    if (!SETTINGS_FILE.isAbortError(error)) {
-      showToast("选择文件失败");
-    }
+// 权限过期后需要一次用户手势重新授权，之后按当前状态决定是恢复还是回写。
+reauthSettingsFileBtn.addEventListener("click", async () => {
+  if (!(await ensureSettingsFileAccess())) {
+    return;
   }
-});
 
-createSettingsFileBtn.addEventListener("click", async () => {
-  try {
-    const handle = await SETTINGS_FILE.pickNew();
-
-    if (handle) {
-      await bindSettingsFile(handle, { restoreFirst: false });
-    }
-  } catch (error) {
-    if (!SETTINGS_FILE.isAbortError(error)) {
-      showToast("创建文件失败");
-    }
-  }
-});
-
-restoreSettingsFileBtn.addEventListener("click", async () => {
-  if (await ensureSettingsFileAccess()) {
-    await restoreFromSettingsFile();
-  }
-});
-
-saveSettingsFileBtn.addEventListener("click", async () => {
-  if (await ensureSettingsFileAccess()) {
+  if (hasAnySettings()) {
     await writeSettingsFile();
+  } else {
+    await restoreFromSettingsFile();
   }
 });
 
@@ -867,13 +887,11 @@ unbindSettingsFileBtn.addEventListener("click", async () => {
   settingsFilePermission = "prompt";
 
   renderSettingsFileState();
-  showToast("已解除绑定");
+  showToast("已不再记住该文件");
 });
 
 async function initSettingsFile() {
   if (!SETTINGS_FILE.isSupported()) {
-    bindSettingsFileBtn.disabled = true;
-    createSettingsFileBtn.disabled = true;
     renderSettingsFileState();
     return;
   }

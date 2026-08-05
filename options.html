@@ -26,14 +26,14 @@
           <button
             id="exportSettingsBtn"
             class="sync-button sync-button--primary"
-            title="导出全部设置为 JSON 文件（含解密密钥明文，请勿公开分享）"
+            title="导出全部设置为 JSON 文件并记住它，之后配置变更会自动写入该文件（含解密密钥明文，请勿公开分享）"
           >
             一键导出 JSON
           </button>
           <button
             id="importSettingsBtn"
             class="sync-button"
-            title="从 JSON 文件导入设置（合并模式，相同配置会被更新而非重复添加）"
+            title="从 JSON 文件导入设置并记住它（合并模式，相同配置会被更新而非重复添加）"
           >
             一键导入 JSON
           </button>
@@ -185,14 +185,15 @@
 
         <!-- ── 设置文件 ─────────────────────────────────────────────────── -->
         <section class="settings-section">
-          <h2 class="section-title">设置文件（更新后自动恢复）</h2>
+          <h2 class="section-title">设置文件</h2>
           <p class="section-desc">
-            绑定一个本地 JSON 文件后，配置每次变更都会自动写入该文件；扩展更新或重装导致配置清空时，
-            重新指向同一个文件即可一键找回，不用再手动导出导入。
+            就是顶部「一键导出 / 导入 JSON」用的那一个文件 —— 导出或导入之后会自动记住它，
+            此后配置每次变更都写回该文件；扩展更新或重装导致配置清空时，再导入同一个文件即可全部找回
+            （配置为空时打开本页会自动恢复）。
           </p>
 
           <div id="settingsFileAlert" class="settings-file-alert hidden">
-            当前没有任何配置。如果这是刚更新后的新安装，选择你的设置文件即可恢复全部个性化设置。
+            当前没有任何配置。如果这是刚更新后的新安装，点右上角「一键导入 JSON」选择你的设置文件即可全部恢复。
           </div>
 
           <div class="setting-item">
@@ -203,24 +204,18 @@
                   <span id="settingsFileName" class="settings-file-name">未绑定</span>
                 </span>
                 <p class="setting-desc" id="settingsFileStatus">
-                  尚未绑定设置文件，配置只保存在当前扩展中。
+                  尚未记住设置文件，配置只保存在当前扩展中。
                 </p>
               </div>
 
               <div class="settings-file-actions">
-                <button id="bindSettingsFileBtn" class="save-button">
-                  选择设置文件
+                <button id="reauthSettingsFileBtn" class="save-button hidden">
+                  重新授权并同步
                 </button>
-                <button id="createSettingsFileBtn" class="add-config-button add-config-button--sm">
-                  新建设置文件
+                <button id="unbindSettingsFileBtn" class="cancel-button hidden">
+                  不再记住
                 </button>
               </div>
-            </div>
-
-            <div id="settingsFileBoundActions" class="setting-row hidden">
-              <button id="restoreSettingsFileBtn" class="cancel-button">从文件恢复</button>
-              <button id="saveSettingsFileBtn" class="cancel-button">立即写入文件</button>
-              <button id="unbindSettingsFileBtn" class="cancel-button">解除绑定</button>
             </div>
           </div>
         </section>
