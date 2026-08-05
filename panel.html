@@ -11,7 +11,8 @@
           <input
             id="searchInput"
             class="search-input"
-            placeholder="Search (Ctrl+F)"
+            placeholder="搜索内容 / 过滤请求 (Ctrl+F)"
+            title="高亮当前面板中的匹配内容，同时按接口路径过滤左侧请求列表"
           />
           <span id="searchCount" class="search-count"></span>
           <button id="searchCaseSensitiveBtn" class="search-toggle-button" title="区分大小写 (Alt+C)">Aa</button>
@@ -31,6 +32,11 @@
         <aside id="requestPanel" class="request-panel">
           <div class="request-panel-header">
             <span class="request-panel-title">Requests</span>
+            <span
+              id="requestFilterCount"
+              class="request-filter-count hidden"
+              title="过滤后可见请求数 / 全部请求数"
+            ></span>
 
             <div class="request-panel-actions">
               <button

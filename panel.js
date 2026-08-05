@@ -10,6 +10,7 @@ const tabResponseBtn = document.getElementById("tabResponse");
 const tabRequestBtn = document.getElementById("tabRequest");
 const searchInputEl = document.getElementById("searchInput");
 const searchCountEl = document.getElementById("searchCount");
+const requestFilterCountEl = document.getElementById("requestFilterCount");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const toastEl = document.getElementById("toast");
@@ -147,6 +148,69 @@ function moveIndicatorTo(itemEl) {
   indicatorEl.style.height = `${itemEl.offsetHeight}px`;
 }
 
+// ── Request list filtering ────────────────────────────────────────────────────
+// The toolbar search box does double duty: it highlights matches inside the
+// active viewer AND narrows the request list by API path, so a keyword like
+// /xxx/aaa/ccc finds the one request among hundreds. Matching honours the same
+// Aa / 全词 / .* toggles as the content search.
+
+const filterEmptyEl = document.createElement("div");
+filterEmptyEl.className = "request-list-empty hidden";
+filterEmptyEl.textContent = "无匹配请求 · 关键词只过滤接口路径";
+requestListEl.appendChild(filterEmptyEl);
+
+function applyRequestFilter() {
+  const query = searchText.trim();
+  const regex = query ? buildSearchRegex(query) : null;
+  const isFiltering = Boolean(regex);
+
+  let visible = 0;
+  let total = 0;
+
+  for (const el of requestListEl.children) {
+    if (!el.__request) {
+      continue;
+    }
+
+    total++;
+
+    // The selected request always stays put — searching for a value that only
+    // exists in the response body must not hide the row being read.
+    const keep =
+      !isFiltering ||
+      el.__request === activeRequest ||
+      matchesRequestFilter(el.__apiPath, regex);
+
+    el.classList.toggle("request-item--filtered", !keep);
+
+    if (keep) {
+      visible++;
+    }
+  }
+
+  updateRequestFilterCount(isFiltering, visible, total);
+  filterEmptyEl.classList.toggle("hidden", !isFiltering || visible > 0);
+
+  // Hidden rows change every offsetTop below them.
+  moveIndicatorTo(findRequestItemEl(activeRequest));
+}
+
+function matchesRequestFilter(apiPath, regex) {
+  if (!regex) {
+    return true;
+  }
+
+  // buildSearchRegex() returns a /g/ regex, whose test() is stateful.
+  regex.lastIndex = 0;
+
+  return regex.test(apiPath || "");
+}
+
+function updateRequestFilterCount(isFiltering, visible, total) {
+  requestFilterCountEl.classList.toggle("hidden", !isFiltering);
+  requestFilterCountEl.textContent = isFiltering ? `${visible} / ${total}` : "";
+}
+
 function findRequestItemEl(request) {
   if (!request) {
     return null;
@@ -181,8 +245,9 @@ function renderRequestList() {
 
   requestListEl.appendChild(fragment);
 
-  // Sync indicator to current active item (handles init & restore)
-  moveIndicatorTo(findRequestItemEl(activeRequest));
+  // Re-applies any active filter and syncs the indicator to the active item
+  // (handles init & restore).
+  applyRequestFilter();
 }
 
 // Incremental append — a new request only ever adds one row, so there is no
@@ -205,6 +270,11 @@ function addRequest(request) {
       moveIndicatorTo(null);
     }
   }
+
+  // Only worth a pass when a filter is actually narrowing the list.
+  if (searchText.trim()) {
+    applyRequestFilter();
+  }
 }
 
 function buildRequestItem(request) {
@@ -216,6 +286,9 @@ function buildRequestItem(request) {
   main.className = "request-item-main";
 
   const requestApiPath = getRequestName(request.url);
+
+  // Cached so filtering doesn't re-parse the URL of every row on each keystroke.
+  item.__apiPath = requestApiPath;
 
   const name = document.createElement("div");
   name.className = "request-name";
@@ -262,7 +335,9 @@ function buildRequestItem(request) {
       if (el === indicatorEl) continue;
       el.classList.toggle("is-active", el.__request === request);
     }
-    moveIndicatorTo(item);
+    // Re-runs the filter: the previously selected row was pinned visible only
+    // because it was selected, so it may drop out now.
+    applyRequestFilter();
     loadRequestContent(request);
   });
 
@@ -792,6 +867,7 @@ let searchDebounceId = 0;
 function applySearchText(value) {
   searchText = value;
   currentMatchIndex = 0;
+  applyRequestFilter();
   rerenderActiveView();
 }
 
@@ -842,6 +918,7 @@ searchInputEl.addEventListener("keydown", (event) => {
       searchInputEl.value = "";
       currentMatchIndex = -1;
 
+      applyRequestFilter();
       rerenderActiveView();
     } else {
       searchInputEl.blur();
@@ -1153,11 +1230,12 @@ function clearRequestsLocal() {
   currentMatchIndex = -1;
   searchInputEl.value = "";
 
-  // Remove only request items, keep indicatorEl
+  // Remove only request items, keep indicatorEl / filterEmptyEl
   for (const el of [...requestListEl.children]) {
     if (el.__request) el.remove();
   }
   moveIndicatorTo(null);
+  applyRequestFilter();
 
   jsonViewerEl.replaceChildren();
   requestViewerEl.replaceChildren();
@@ -1576,6 +1654,7 @@ function setupSearchToggleButtons() {
 
 function triggerSearchRerender() {
   currentMatchIndex = 0;
+  applyRequestFilter();
   rerenderActiveView();
 }
 

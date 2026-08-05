@@ -200,6 +200,18 @@ body {
   user-select: none;
 }
 
+/* 过滤命中数：靠住标题，把右侧操作区推到最右 */
+.request-filter-count {
+  margin-right: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #ddf4ff;
+  color: #0969da;
+  font-size: 10px;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .sidebar-toggle-button,
 .expand-sidebar-button {
   height: 26px;
@@ -395,6 +407,19 @@ body.is-resizing .resize-handle::before {
 
 .hidden {
   display: none !important;
+}
+
+/* 搜索关键词过滤掉的请求行 */
+.request-item--filtered {
+  display: none;
+}
+
+.request-list-empty {
+  padding: 16px 12px;
+  color: #8c959f;
+  font-size: 11px;
+  text-align: center;
+  user-select: none;
 }
 
 .request-item {
