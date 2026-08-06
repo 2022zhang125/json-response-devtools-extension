@@ -344,8 +344,9 @@ function buildRequestItem(request) {
   return item;
 }
 
-// Records arrive as metadata only — devtools.js no longer pays for a body it
-// may never be asked for. Selecting a row is what triggers the fetch.
+// Records arrive as metadata only; bodies stay in devtools.js until asked for,
+// so a session's worth of payloads isn't cloned across the port up front. The
+// body itself is already fetched by then — selecting a row just requests a copy.
 function loadRequestContent(request) {
   renderRequestViewer(request);
   renderActiveContent(request);
@@ -370,7 +371,7 @@ function renderActiveContent(request) {
   }
 
   if (request.contentError) {
-    showViewerMessage("响应体已被 DevTools 回收，重新发起该请求后可再次查看。");
+    showViewerMessage("");
     return;
   }
 
@@ -389,10 +390,12 @@ function showViewerMessage(text) {
 
   jsonViewerEl.replaceChildren();
 
-  const empty = document.createElement("div");
-  empty.className = "empty";
-  empty.textContent = text;
-  jsonViewerEl.appendChild(empty);
+  if (text) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = text;
+    jsonViewerEl.appendChild(empty);
+  }
 
   refreshSearchMatches(false);
 }
