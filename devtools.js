@@ -27,6 +27,13 @@ const MAX_CACHED_BYTES = 64 * 1024 * 1024;
 // leaving a window for the body to disappear.
 const MAX_CONCURRENT_FETCHES = 4;
 
+// getContent() is not guaranteed to call back — DevTools drops the callback for
+// some entries, a navigation clearing the network log mid-flight being the usual
+// one. Without a deadline that fetch never returns its concurrency slot, and
+// after MAX_CONCURRENT_FETCHES of them the queue is wedged: every later body
+// stays "pending" and the panel sits on "正在加载响应体…" forever.
+const CONTENT_FETCH_TIMEOUT_MS = 10000;
+
 // Cached bodies, keyed by record id: { state, content, encoding, reason,
 // waiters }. `state` is "pending" until the fetch settles, then "ok" or "fail".
 // A panel that selects a row mid-fetch parks a callback in `waiters`.
@@ -169,7 +176,19 @@ function cacheBody(id, entry) {
   bodyCache.set(id, slot);
 
   enqueueFetch((done) => {
+    let settled = false;
+    let timeoutId = 0;
+
     const settle = (result) => {
+      // The deadline below and a late getContent() callback both land here;
+      // settling twice would double-count this body against the byte budget.
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeoutId);
+
       Object.assign(slot, result);
       slot.state = result.reason ? "fail" : "ok";
 
@@ -188,6 +207,11 @@ function cacheBody(id, entry) {
 
       done();
     };
+
+    timeoutId = setTimeout(
+      () => settle({ reason: "timeout" }),
+      CONTENT_FETCH_TIMEOUT_MS,
+    );
 
     try {
       entry.getContent((content, encoding) => {
@@ -272,9 +296,9 @@ function dropCachedBody(id) {
 }
 
 // Serve a body to the panel. Normally this is a cache hit — the fetch was
-// started when the request finished. A miss means the body was dropped to stay
-// under the size budget, so we fall back to asking DevTools for it, which may
-// well be too late by then.
+// started when the request finished. A miss (dropped for the byte budget) or a
+// failed prefetch both fall back to asking DevTools again, from the HAR entry we
+// still hold.
 function sendContent(port, id) {
   const fail = (reason) =>
     postToPort(port, { type: "request-content", id, ok: false, reason });
@@ -301,21 +325,30 @@ function sendContent(port, id) {
 
   const cached = bodyCache.get(id);
 
-  if (cached) {
-    if (cached.state === "pending") {
-      cached.waiters.push(deliver);
-    } else {
-      deliver(cached);
-    }
+  if (cached?.state === "pending") {
+    cached.waiters.push(deliver);
+    return;
+  }
 
+  if (cached?.state === "ok") {
+    deliver(cached);
     return;
   }
 
   const entry = harEntries.get(id);
 
   if (!entry) {
-    fail("gone");
+    fail(cached?.reason || "gone");
     return;
+  }
+
+  // Nothing usable cached: either evicted for the byte budget, or the prefetch
+  // failed. Retry rather than serving the stale failure — the prefetch fires the
+  // instant the request finishes, which is exactly when DevTools is least likely
+  // to hand the body over. Asking now, with the row actually selected, is the
+  // timing the old lazy path had, and it usually succeeds.
+  if (cached) {
+    dropCachedBody(id);
   }
 
   cacheBody(id, entry);

@@ -266,6 +266,21 @@ body.is-resizing .resize-handle::before {
   background: #0969da;
 }
 
+/* An unregistered custom property is an untyped token and can't be transitioned;
+   registering it as a <length> is what makes the snap-shut animation possible at
+   all. */
+@property --request-panel-width {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 320px;
+}
+
+/* Applied only for the snap-shut run. The drag itself must have no easing
+   whatsoever, or the panel lags behind the cursor. */
+.layout.is-sidebar-snapping {
+  transition: --request-panel-width 160ms ease-out;
+}
+
 .layout.is-sidebar-collapsed .resize-handle {
   display: none;
 }
@@ -412,6 +427,22 @@ body.is-resizing .resize-handle::before {
 /* 搜索关键词过滤掉的请求行 */
 .request-item--filtered {
   display: none;
+}
+
+/* The selected row when it no longer matches the filter: kept on screen so the
+   body being read doesn't vanish, dimmed and labelled so it isn't mistaken for
+   a match. */
+.request-item--pinned {
+  opacity: 0.55;
+}
+
+.request-item--pinned::after {
+  content: "当前查看 · 不匹配筛选";
+  display: block;
+  margin-top: 4px;
+  color: #8c959f;
+  font-size: 10px;
+  font-style: italic;
 }
 
 .request-list-empty {
@@ -602,6 +633,33 @@ body.is-resizing .resize-handle::before {
 
 .json-tree-line:hover {
   background: rgba(9, 105, 218, 0.05);
+}
+
+/* A base64 blob, a ciphertext field or a long URL drags a nowrap line out to
+   several thousand pixels, and the horizontal scrollbar then has to be dragged
+   forever to read it. Structural bits stay on one line; only the value wraps.
+   It's a flex item, so its continuation lines land under where the value
+   started rather than at the left margin — min-width: 0 is what lets it shrink
+   below max-content in the first place. */
+.json-tree-line > .json-string,
+.json-tree-line > .json-number,
+.json-tree-line > .json-boolean,
+.json-tree-line > .json-null,
+.json-tree-line > .json-url {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The value is the only thing on the line allowed to give up width. Flex spreads
+   shrinkage in proportion to flex-basis, so leaving the key shrinkable meant a
+   3000px value dragged the 60px key down to ~15px with it — the key ended up
+   wrapping two characters per row. */
+.json-tree-line > .json-key,
+.json-tree-line > .json-tree-toggle,
+.json-tree-line > .json-punctuation,
+.json-tree-line > .json-summary {
+  flex: none;
 }
 
 .json-tree-toggle {

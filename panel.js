@@ -43,6 +43,18 @@ let searchCaseSensitive = false;
 let searchWholeWord = false;
 let searchUseRegex = false;
 
+// Declared up here, not next to the sidebar functions further down: the
+// applySidebarState() call below runs at module top level and would hit the
+// temporal dead zone of a const declared later in the file.
+const SIDEBAR_MAX_WIDTH = 720;
+
+// The panel tracks the cursor all the way down to zero while dragging, with no
+// snapping en route. The decision happens on mouse-up: released below this mark
+// it animates shut into the same collapsed state the ‹ button produces, released
+// anywhere above it it simply stays where it was let go. Doubles as the floor for
+// a stored width, so a deliberately narrow panel survives a reload.
+const SIDEBAR_COLLAPSE_AT = 120;
+
 let sidebarWidth =
   Number(localStorage.getItem(CONFIG.STORAGE_KEYS.SIDEBAR_WIDTH)) || 320;
 let isSidebarCollapsed =
@@ -156,13 +168,26 @@ function moveIndicatorTo(itemEl) {
 
 const filterEmptyEl = document.createElement("div");
 filterEmptyEl.className = "request-list-empty hidden";
-filterEmptyEl.textContent = "无匹配请求 · 关键词只过滤接口路径";
+filterEmptyEl.textContent = "无匹配请求 · 关键词只过滤请求路径";
 requestListEl.appendChild(filterEmptyEl);
+
+// Last pattern that actually compiled. In .* mode a half-typed regex — an
+// unclosed "(", a trailing "\" — makes buildSearchRegex() return null; treating
+// that as "not filtering" dumps every row back into the list mid-keystroke, so
+// the previous good pattern holds until the new one parses.
+let lastValidFilterRegex = null;
 
 function applyRequestFilter() {
   const query = searchText.trim();
-  const regex = query ? buildSearchRegex(query) : null;
-  const isFiltering = Boolean(regex);
+  const isFiltering = Boolean(query);
+
+  if (!isFiltering) {
+    lastValidFilterRegex = null;
+  } else {
+    lastValidFilterRegex = buildSearchRegex(query) || lastValidFilterRegex;
+  }
+
+  const regex = isFiltering ? lastValidFilterRegex : null;
 
   let visible = 0;
   let total = 0;
@@ -174,16 +199,18 @@ function applyRequestFilter() {
 
     total++;
 
-    // The selected request always stays put — searching for a value that only
-    // exists in the response body must not hide the row being read.
-    const keep =
-      !isFiltering ||
-      el.__request === activeRequest ||
-      matchesRequestFilter(el.__apiPath, regex);
+    const matched = !isFiltering || matchesRequestFilter(el, regex);
 
-    el.classList.toggle("request-item--filtered", !keep);
+    // The selected row is never hidden — searching for a value that only exists
+    // in the response body must not yank away the row being read. It is dimmed
+    // and labelled instead, so it can't be read as a filter hit, and it doesn't
+    // count towards the visible tally.
+    const pinned = !matched && el.__request === activeRequest;
 
-    if (keep) {
+    el.classList.toggle("request-item--filtered", !matched && !pinned);
+    el.classList.toggle("request-item--pinned", pinned);
+
+    if (matched) {
       visible++;
     }
   }
@@ -195,15 +222,26 @@ function applyRequestFilter() {
   moveIndicatorTo(findRequestItemEl(activeRequest));
 }
 
-function matchesRequestFilter(apiPath, regex) {
+// Matched against the stripped API path AND the raw pathname: the row shows the
+// full URL, so a keyword living in the prefix that normalizeApiPath() removed is
+// visible on screen and has to still find its row.
+function matchesRequestFilter(el, regex) {
   if (!regex) {
     return true;
+  }
+
+  return testFilterRegex(regex, el.__apiPath) || testFilterRegex(regex, el.__rawPath);
+}
+
+function testFilterRegex(regex, text) {
+  if (!text) {
+    return false;
   }
 
   // buildSearchRegex() returns a /g/ regex, whose test() is stateful.
   regex.lastIndex = 0;
 
-  return regex.test(apiPath || "");
+  return regex.test(text);
 }
 
 function updateRequestFilterCount(isFiltering, visible, total) {
@@ -289,6 +327,7 @@ function buildRequestItem(request) {
 
   // Cached so filtering doesn't re-parse the URL of every row on each keystroke.
   item.__apiPath = requestApiPath;
+  item.__rawPath = getRequestPathname(request.url);
 
   const name = document.createElement("div");
   name.className = "request-name";
@@ -348,6 +387,14 @@ function buildRequestItem(request) {
 // so a session's worth of payloads isn't cloned across the port up front. The
 // body itself is already fetched by then — selecting a row just requests a copy.
 function loadRequestContent(request) {
+  // One failed attempt doesn't mean the next one fails: the prefetch runs at the
+  // worst possible moment for getContent(). Re-selecting a failed row asks again
+  // instead of replaying the cached error forever. "oversized" is a property of
+  // the payload, not of timing, so it stays.
+  if (request.contentError && request.contentError !== "oversized") {
+    delete request.contentError;
+  }
+
   renderRequestViewer(request);
   renderActiveContent(request);
 
@@ -371,7 +418,7 @@ function renderActiveContent(request) {
   }
 
   if (request.contentError) {
-    showViewerMessage("");
+    showViewerMessage(getContentErrorText(request.contentError));
     return;
   }
 
@@ -381,6 +428,21 @@ function renderActiveContent(request) {
   }
 
   renderResponseBody(request, request.content);
+}
+
+// Every failure path has to say something. Rendering nothing is indistinguishable
+// from a broken viewer — the panel goes blank right after the loading placeholder
+// and there is no way to tell it apart from a crash.
+function getContentErrorText(reason) {
+  if (reason === "gone") {
+    return "响应体已被 DevTools 回收，重新发起该请求后可再次查看。";
+  }
+
+  if (reason === "timeout") {
+    return "响应体读取超时，重新发起该请求后可再次查看。";
+  }
+
+  return `响应体获取失败（${reason}）。`;
 }
 
 function showViewerMessage(text) {
@@ -1079,13 +1141,15 @@ function showToast(message) {
 }
 
 function getRequestName(url) {
-  try {
-    const parsedUrl = new URL(url);
-    const pathname = parsedUrl.pathname;
+  return normalizeApiPath(getRequestPathname(url));
+}
 
-    return normalizeApiPath(pathname);
+// The path as it actually is, before any configured prefix is stripped off.
+function getRequestPathname(url) {
+  try {
+    return new URL(url).pathname;
   } catch {
-    return normalizeApiPath(url);
+    return url;
   }
 }
 
@@ -1133,7 +1197,10 @@ function getStatusClass(status) {
 }
 
 function applySidebarState() {
-  sidebarWidth = Math.min(Math.max(sidebarWidth, 220), 720);
+  sidebarWidth = Math.min(
+    Math.max(sidebarWidth, SIDEBAR_COLLAPSE_AT),
+    SIDEBAR_MAX_WIDTH,
+  );
   layoutEl.style.setProperty("--request-panel-width", `${sidebarWidth}px`);
 
   layoutEl.classList.toggle("is-sidebar-collapsed", isSidebarCollapsed);
@@ -1162,36 +1229,145 @@ function setupSidebarCollapse() {
 function setupSidebarResize() {
   let startX = 0;
   let startWidth = 0;
+  let dragWidth = 0;
+  let isDragging = false;
 
   resizeHandleEl.addEventListener("mousedown", (event) => {
-    if (isSidebarCollapsed) {
+    if (isSidebarCollapsed || event.button !== 0) {
       return;
     }
 
     startX = event.clientX;
     startWidth = sidebarWidth;
+    // A mousedown with no movement must still land on a sane value at mouseup.
+    dragWidth = sidebarWidth;
+    isDragging = true;
 
     document.body.classList.add("is-resizing");
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
 
+    // The panel is an iframe inside the DevTools window. Drag left past its edge
+    // and the cursor is outside that document: no more mousemove, and the mouseup
+    // lands in the DevTools chrome where this listener never sees it — the drag
+    // stays armed and the next pointer move over the panel resizes it with no
+    // button held. Leaving the document therefore ends the drag at the crossing
+    // point, and window blur catches a release that happened out there.
+    document.addEventListener("mouseleave", handleMouseLeave);
+    window.addEventListener("blur", handleWindowBlur);
+
     event.preventDefault();
   });
 
-  function handleMouseMove(event) {
-    const deltaX = event.clientX - startX;
-    sidebarWidth = Math.min(Math.max(startWidth + deltaX, 220), 720);
+  // Floored at 0 and nothing else: no snapping, no minimum. The panel sits
+  // exactly under the cursor for the whole drag. A clientX outside the document
+  // is negative, which is what makes "dragged out the left edge" land on 0 —
+  // i.e. the exit point is the release point, as intended. sidebarWidth is left
+  // alone until the drag ends so a drag ending in a collapse doesn't overwrite
+  // the width the ‹ / › pair restores to.
+  function trackCursor(clientX) {
+    dragWidth = Math.min(
+      Math.max(startWidth + (clientX - startX), 0),
+      SIDEBAR_MAX_WIDTH,
+    );
 
-    layoutEl.style.setProperty("--request-panel-width", `${sidebarWidth}px`);
+    layoutEl.style.setProperty("--request-panel-width", `${dragWidth}px`);
   }
 
-  function handleMouseUp() {
+  function handleMouseMove(event) {
+    // Belt and braces: the button was released somewhere this document couldn't
+    // observe, and the cursor has now come back. Don't keep resizing.
+    if (event.buttons === 0) {
+      endDrag();
+      return;
+    }
+
+    trackCursor(event.clientX);
+  }
+
+  function handleMouseUp(event) {
+    trackCursor(event.clientX);
+    endDrag();
+  }
+
+  function handleMouseLeave(event) {
+    trackCursor(event.clientX);
+    endDrag();
+  }
+
+  function handleWindowBlur() {
+    // No coordinates on this one — settle on wherever the last move left it.
+    endDrag();
+  }
+
+  function endDrag() {
+    if (!isDragging) {
+      return;
+    }
+
+    isDragging = false;
+
     document.body.classList.remove("is-resizing");
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
+    document.removeEventListener("mouseleave", handleMouseLeave);
+    window.removeEventListener("blur", handleWindowBlur);
 
-    localStorage.setItem(CONFIG.STORAGE_KEYS.SIDEBAR_WIDTH, String(sidebarWidth));
+    if (dragWidth < SIDEBAR_COLLAPSE_AT) {
+      snapSidebarShut(dragWidth);
+      return;
+    }
+
+    // Released above the mark: it stays exactly where it was let go.
+    sidebarWidth = dragWidth;
+    localStorage.setItem(
+      CONFIG.STORAGE_KEYS.SIDEBAR_WIDTH,
+      String(sidebarWidth),
+    );
+
+    applySidebarState();
   }
+}
+
+// Runs the rest of the way to the left edge as an animation rather than a jump —
+// released at 90px the panel would otherwise blink out with nothing to show the
+// 90px were what triggered it. sidebarWidth deliberately keeps its last real
+// value so the › button restores a usable panel.
+function snapSidebarShut(fromWidth) {
+  // Declared before finish(): the early-return path below calls it before the
+  // timer is ever armed.
+  let fallbackId = 0;
+
+  const finish = () => {
+    layoutEl.removeEventListener("transitionend", onTransitionEnd);
+    clearTimeout(fallbackId);
+    layoutEl.classList.remove("is-sidebar-snapping");
+
+    isSidebarCollapsed = true;
+    localStorage.setItem(CONFIG.STORAGE_KEYS.SIDEBAR_COLLAPSED, "true");
+    applySidebarState();
+  };
+
+  const onTransitionEnd = (event) => {
+    if (event.propertyName === "--request-panel-width") {
+      finish();
+    }
+  };
+
+  // Nothing to animate — the drag already ended flush against the edge.
+  if (fromWidth <= 0) {
+    finish();
+    return;
+  }
+
+  layoutEl.addEventListener("transitionend", onTransitionEnd);
+
+  // transitionend on a registered custom property is the normal path; this is
+  // only here so a missed event can't strand the panel mid-animation.
+  fallbackId = setTimeout(finish, 500);
+
+  layoutEl.classList.add("is-sidebar-snapping");
+  layoutEl.style.setProperty("--request-panel-width", "0px");
 }
 
 function setupClearRequests() {
