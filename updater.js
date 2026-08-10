@@ -377,10 +377,15 @@ const UPDATER = (() => {
       return;
     }
 
-    if (chrome?.tabs?.create) {
-      chrome.tabs.create({ url });
-      return;
-    }
+    // chrome.tabs still looks callable after an extension reload, but calling it
+    // throws "Extension context invalidated" — fall back to window.open rather
+    // than leaving the click dead.
+    try {
+      if (chrome?.tabs?.create) {
+        chrome.tabs.create({ url });
+        return;
+      }
+    } catch {}
 
     window.open(url, "_blank", "noopener");
   }

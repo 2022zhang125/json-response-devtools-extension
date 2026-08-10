@@ -6,6 +6,12 @@
   </head>
   <body>
     <div class="app">
+      <!-- Shown only after the extension context dies under a running panel
+           (reload / update). See markContextLost() in panel.js. -->
+      <div id="contextBanner" class="context-banner hidden">
+        扩展已重新加载，当前面板已失效 —— 请关闭并重新打开 DevTools（F12）后继续使用。
+      </div>
+
       <div class="toolbar">
         <div class="response-search-toolbar">
           <input

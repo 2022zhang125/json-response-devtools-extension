@@ -39,6 +39,19 @@ body {
   position: relative;
 }
 
+/* Only ever visible once the extension context is gone — the panel can't
+   recover on its own, so the message is a full-width bar rather than a toast
+   that disappears. */
+.context-banner {
+  flex: none;
+  padding: 8px 14px;
+  border-bottom: 1px solid #f0c36d;
+  background: #fff8e5;
+  color: #7a5b12;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .toolbar {
   flex: none;
   height: 44px;

@@ -14,6 +14,7 @@ const requestFilterCountEl = document.getElementById("requestFilterCount");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const toastEl = document.getElementById("toast");
+const contextBannerEl = document.getElementById("contextBanner");
 
 const searchCaseSensitiveBtn = document.getElementById("searchCaseSensitiveBtn");
 const searchWholeWordBtn = document.getElementById("searchWholeWordBtn");
@@ -42,6 +43,13 @@ let currentMatchIndex = -1;
 let searchCaseSensitive = false;
 let searchWholeWord = false;
 let searchUseRegex = false;
+
+// Set once the extension context this panel runs in is torn down (reload /
+// update) — see the context-loss section below. Declared here rather than next
+// to that section because the setup calls below run at module top level and
+// would hit the temporal dead zone of a `let` declared later in the file.
+let isContextLost = false;
+let updateCheckIntervalId = 0;
 
 // Declared up here, not next to the sidebar functions further down: the
 // applySidebarState() call below runs at module top level and would hit the
@@ -85,19 +93,95 @@ window.addEventListener("storage", (event) => {
   }
 });
 
-const port = chrome.runtime.connect({
-  name: "json-response-panel",
+// ── Extension context loss ────────────────────────────────────────────────────
+// Reloading or updating the extension tears down the context this panel runs in
+// while the DevTools window stays open. Every chrome.* call then throws
+// "Extension context invalidated" and the port to devtools.js is already dead,
+// so nothing the panel does can bring it back — only reopening DevTools can.
+// Left unguarded, each call site threw that straight into the DevTools console
+// with no hint of what it meant. Now the first failure flips the panel into a
+// clearly labelled dead state and every later call is a no-op.
+
+function isContextAlive() {
+  try {
+    return Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
+function markContextLost() {
+  if (isContextLost) {
+    return;
+  }
+
+  isContextLost = true;
+  contextBannerEl.classList.remove("hidden");
+  window.clearInterval(updateCheckIntervalId);
+}
+
+// Both of these mean the same thing here: the plumbing this panel was built on
+// is gone for good. Anything else is a real bug and must keep propagating.
+function isDeadContextError(error) {
+  const text = String(error?.message || error);
+
+  return (
+    text.includes("Extension context invalidated") ||
+    text.includes("disconnected port")
+  );
+}
+
+// Sole entry point for chrome.* calls from the panel. Returns undefined once the
+// context is gone, so callers fall through to their own "nothing happened" path.
+function withContext(action) {
+  if (isContextLost) {
+    return undefined;
+  }
+
+  if (!isContextAlive()) {
+    markContextLost();
+    return undefined;
+  }
+
+  try {
+    return action();
+  } catch (error) {
+    if (isDeadContextError(error)) {
+      markContextLost();
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+const port =
+  withContext(() =>
+    chrome.runtime.connect({
+      name: "json-response-panel",
+    }),
+  ) || null;
+
+// The port only ever drops when the extension context or the DevTools page goes
+// away — either way this panel is finished, and the banner says so.
+port?.onDisconnect.addListener(() => {
+  withContext(() => void chrome.runtime.lastError);
+  markContextLost();
 });
 
 // Send current prefix config to devtools.js so it can filter captured requests
 function syncConfigToDevtools() {
-  port.postMessage({
+  postToDevtools({
     type: "sync-config",
     prefixes: getAllPrefixList(),
   });
 }
 
-port.onMessage.addListener((message) => {
+function postToDevtools(message) {
+  withContext(() => port?.postMessage(message));
+}
+
+port?.onMessage.addListener((message) => {
   if (message.type === "init-requests") {
     requests.length = 0;
     requests.push(...message.requests.slice(-MAX_REQUESTS));
@@ -404,7 +488,7 @@ function loadRequestContent(request) {
     request.contentError === undefined;
 
   if (needsFetch) {
-    port.postMessage({
+    postToDevtools({
       type: "request-content",
       id: request.id,
     });
@@ -1391,7 +1475,14 @@ function applyJumpStateToNameText(el, apiPath) {
 }
 
 function clearRequests() {
-  port.postMessage({
+  // The list is cleared by devtools.js echoing "requests-cleared" back, so with
+  // the port gone the button would simply do nothing at all.
+  if (isContextLost) {
+    showToast("扩展已失效，请重新打开 DevTools");
+    return;
+  }
+
+  postToDevtools({
     type: "clear-requests",
   });
 }
@@ -1447,16 +1538,30 @@ function openSwaggerAndSearch(displayPath, originalUrl) {
   const cfg = findMatchingSwaggerConfig(originalPathname, configs);
   const swaggerUrl = buildSwaggerUrl(cfg.base, cfg.suffix);
 
+  if (isContextLost) {
+    showToast("扩展已失效，请重新打开 DevTools");
+    return;
+  }
+
   navigator.clipboard
     .writeText(displayPath)
     .catch(() => {})
     .finally(() => {
-      chrome.tabs.create({ url: swaggerUrl }, (tab) => {
-        if (tab?.id !== undefined) {
-          injectSwaggerHelperOnLoad(tab.id, displayPath);
-        }
+      const opened = withContext(() => {
+        chrome.tabs.create({ url: swaggerUrl }, (tab) => {
+          if (tab?.id !== undefined) {
+            injectSwaggerHelperOnLoad(tab.id, displayPath);
+          }
+        });
+
+        return true;
       });
-      showToast(`Opening Swagger: ${displayPath}`);
+
+      showToast(
+        opened
+          ? `Opening Swagger: ${displayPath}`
+          : "扩展已失效，请重新打开 DevTools",
+      );
     });
 }
 
@@ -1467,8 +1572,11 @@ function injectSwaggerHelperOnLoad(tabId, apiPath) {
   const INJECT_TIMEOUT_MS = 30000;
 
   const cleanup = () => {
-    chrome.tabs.onUpdated.removeListener(onUpdated);
-    chrome.tabs.onRemoved.removeListener(onRemoved);
+    withContext(() => {
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onRemoved.removeListener(onRemoved);
+    });
+
     window.clearTimeout(timeoutId);
   };
 
@@ -1492,33 +1600,39 @@ function injectSwaggerHelperOnLoad(tabId, apiPath) {
     // doc.html#/home?jsonResponseSearch=%2Fxxx even after the menu was opened.
     // It is now handed over as an isolated-world global, so the address bar only
     // ever shows knife4j's own route (…#/业务接口/商家后台-商家套餐/catalog).
-    chrome.scripting.executeScript(
-      {
-        target: { tabId },
-        func: (path) => {
-          globalThis.__JSON_RESPONSE_SEARCH__ = path;
+    withContext(() =>
+      chrome.scripting.executeScript(
+        {
+          target: { tabId },
+          func: (path) => {
+            globalThis.__JSON_RESPONSE_SEARCH__ = path;
+          },
+          args: [apiPath || ""],
         },
-        args: [apiPath || ""],
-      },
-      () => {
-        // Swallow "cannot access contents of the page" etc. — nothing to do.
-        void chrome.runtime.lastError;
+        () => {
+          // Swallow "cannot access contents of the page" etc. — nothing to do.
+          withContext(() => void chrome.runtime.lastError);
 
-        chrome.scripting.executeScript(
-          {
-            target: { tabId },
-            files: ["swagger-content.js"],
-          },
-          () => {
-            void chrome.runtime.lastError;
-          },
-        );
-      },
+          withContext(() =>
+            chrome.scripting.executeScript(
+              {
+                target: { tabId },
+                files: ["swagger-content.js"],
+              },
+              () => {
+                withContext(() => void chrome.runtime.lastError);
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 
-  chrome.tabs.onUpdated.addListener(onUpdated);
-  chrome.tabs.onRemoved.addListener(onRemoved);
+  withContext(() => {
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.onRemoved.addListener(onRemoved);
+  });
 }
 
 function buildSwaggerUrl(base, suffix) {
@@ -1659,7 +1773,15 @@ function warmCryptoIfNeeded() {
 // interval because a DevTools panel can stay open for days.
 
 function setupUpdateCheck() {
-  const check = () => UPDATER.checkForUpdates({ silent: true });
+  // A panel left open across an extension reload would otherwise keep polling
+  // GitHub every interval from a context that can no longer act on the answer.
+  const check = () => {
+    if (isContextLost) {
+      return;
+    }
+
+    UPDATER.checkForUpdates({ silent: true });
+  };
 
   if (typeof window.requestIdleCallback === "function") {
     window.requestIdleCallback(check, { timeout: 10000 });
@@ -1667,7 +1789,10 @@ function setupUpdateCheck() {
     window.setTimeout(check, 5000);
   }
 
-  window.setInterval(check, CONFIG.UPDATE_CHECK_INTERVAL_MS);
+  updateCheckIntervalId = window.setInterval(
+    check,
+    CONFIG.UPDATE_CHECK_INTERVAL_MS,
+  );
 }
 
 // ── Decrypt helpers ───────────────────────────────────────────────────────────
