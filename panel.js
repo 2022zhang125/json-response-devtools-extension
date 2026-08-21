@@ -200,24 +200,21 @@ port?.onMessage.addListener((message) => {
     return;
   }
 
-  // Reply to an on-demand body fetch. Cached onto the record so re-selecting a
-  // row doesn't go back across the port.
+  // Reply to an on-demand body fetch. Only the active row consumes the result;
+  // response text is not retained on the request record.
   if (message.type === "request-content") {
     const record = requests.find((item) => item.id === message.id);
 
-    if (!record) {
+    if (!record || activeRequest !== record) {
       return;
     }
 
     if (message.ok) {
-      record.content = message.content;
-      record.encoding = message.encoding || "";
+      renderResponseBody(record, message.content);
+    } else if (message.reason === "oversized") {
+      showViewerMessage("响应体过大，已跳过捕获（> 5 MB）。");
     } else {
-      record.contentError = message.reason;
-    }
-
-    if (activeRequest === record) {
-      renderActiveContent(record);
+      showViewerMessage(getContentErrorText(message.reason));
     }
 
     return;
@@ -467,51 +464,22 @@ function buildRequestItem(request) {
   return item;
 }
 
-// Records arrive as metadata only; bodies stay in devtools.js until asked for,
-// so a session's worth of payloads isn't cloned across the port up front. The
-// body itself is already fetched by then — selecting a row just requests a copy.
+// Records contain metadata only. Each selection asks DevTools for the body and
+// neither side retains the returned response text for later selections.
 function loadRequestContent(request) {
-  // One failed attempt doesn't mean the next one fails: the prefetch runs at the
-  // worst possible moment for getContent(). Re-selecting a failed row asks again
-  // instead of replaying the cached error forever. "oversized" is a property of
-  // the payload, not of timing, so it stays.
-  if (request.contentError && request.contentError !== "oversized") {
-    delete request.contentError;
-  }
-
   renderRequestViewer(request);
-  renderActiveContent(request);
 
-  const needsFetch =
-    !request.oversized &&
-    request.content === undefined &&
-    request.contentError === undefined;
-
-  if (needsFetch) {
-    postToDevtools({
-      type: "request-content",
-      id: request.id,
-    });
-  }
-}
-
-function renderActiveContent(request) {
-  if (request.oversized || request.contentError === "oversized") {
+  if (request.oversized) {
     showViewerMessage("响应体过大，已跳过捕获（> 5 MB）。");
     return;
   }
 
-  if (request.contentError) {
-    showViewerMessage(getContentErrorText(request.contentError));
-    return;
-  }
+  showViewerMessage("正在加载响应体…");
 
-  if (request.content === undefined) {
-    showViewerMessage("正在加载响应体…");
-    return;
-  }
-
-  renderResponseBody(request, request.content);
+  postToDevtools({
+    type: "request-content",
+    id: request.id,
+  });
 }
 
 // Every failure path has to say something. Rendering nothing is indistinguishable

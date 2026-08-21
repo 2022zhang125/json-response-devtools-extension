@@ -6,6 +6,7 @@ const vm = require("node:vm");
 
 function loadDevtools() {
   let onRequestFinished;
+  let onConnect;
 
   const chrome = {
     devtools: {
@@ -22,7 +23,9 @@ function loadDevtools() {
     },
     runtime: {
       onConnect: {
-        addListener() {},
+        addListener(listener) {
+          onConnect = listener;
+        },
       },
     },
   };
@@ -41,7 +44,35 @@ function loadDevtools() {
     URL,
   });
 
-  return { onRequestFinished };
+  return { onConnect, onRequestFinished };
+}
+
+function connectPanel(onConnect) {
+  let onMessage;
+  const messages = [];
+  const port = {
+    name: "json-response-panel",
+    postMessage(message) {
+      messages.push(message);
+    },
+    onMessage: {
+      addListener(listener) {
+        onMessage = listener;
+      },
+    },
+    onDisconnect: {
+      addListener() {},
+    },
+  };
+
+  onConnect(port);
+
+  return {
+    messages,
+    send(message) {
+      onMessage(message);
+    },
+  };
 }
 
 function createJsonRequest(index, getContent) {
@@ -63,19 +94,49 @@ function createJsonRequest(index, getContent) {
   };
 }
 
-test("starts reading every response body as soon as its request finishes", () => {
-  const { onRequestFinished } = loadDevtools();
-  const started = [];
+test("does not read a response body until the panel requests it", () => {
+  const { onConnect, onRequestFinished } = loadDevtools();
+  const panel = connectPanel(onConnect);
+  let reads = 0;
 
-  for (let index = 0; index < 5; index += 1) {
-    onRequestFinished(
-      createJsonRequest(index, () => {
-        started.push(index);
-        // Deliberately leave the read pending. A stalled earlier read must not
-        // keep a later response body waiting until DevTools has discarded it.
-      }),
-    );
-  }
+  onRequestFinished(
+    createJsonRequest(0, (callback) => {
+      reads += 1;
+      callback('{"ok":true}', "");
+    }),
+  );
 
-  assert.deepEqual(started, [0, 1, 2, 3, 4]);
+  assert.equal(reads, 0);
+
+  const added = panel.messages.find((message) => message.type === "request-added");
+  panel.send({ type: "request-content", id: added.request.id });
+
+  assert.equal(reads, 1);
+});
+
+test("reads the response body again on every panel request", () => {
+  const { onConnect, onRequestFinished } = loadDevtools();
+  const panel = connectPanel(onConnect);
+  let reads = 0;
+
+  onRequestFinished(
+    createJsonRequest(0, (callback) => {
+      reads += 1;
+      callback(`{"read":${reads}}`, "");
+    }),
+  );
+
+  const added = panel.messages.find((message) => message.type === "request-added");
+  const request = { type: "request-content", id: added.request.id };
+
+  panel.send(request);
+  panel.send(request);
+
+  assert.equal(reads, 2);
+  assert.deepEqual(
+    panel.messages
+      .filter((message) => message.type === "request-content")
+      .map((message) => message.content),
+    ['{"read":1}', '{"read":2}'],
+  );
 });
