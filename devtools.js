@@ -21,17 +21,11 @@ const MAX_CONTENT_BYTES = 5 * 1024 * 1024;
 // makes us the ones holding them, so the oldest get dropped past this mark.
 const MAX_CACHED_BYTES = 64 * 1024 * 1024;
 
-// Bodies are fetched eagerly, but not all at once: a page firing a burst of API
-// calls would otherwise pile that many cross-process round trips onto the
-// DevTools main thread at once. A small queue keeps that protection without
-// leaving a window for the body to disappear.
-const MAX_CONCURRENT_FETCHES = 4;
-
 // getContent() is not guaranteed to call back — DevTools drops the callback for
 // some entries, a navigation clearing the network log mid-flight being the usual
-// one. Without a deadline that fetch never returns its concurrency slot, and
-// after MAX_CONCURRENT_FETCHES of them the queue is wedged: every later body
-// stays "pending" and the panel sits on "正在加载响应体…" forever.
+// one. A deadline ensures a selected row does not sit on "正在加载响应体…"
+// forever. It does not gate later reads: every body must be requested while the
+// onRequestFinished entry still owns it.
 const CONTENT_FETCH_TIMEOUT_MS = 10000;
 
 // Cached bodies, keyed by record id: { state, content, encoding, reason,
@@ -39,10 +33,6 @@ const CONTENT_FETCH_TIMEOUT_MS = 10000;
 // A panel that selects a row mid-fetch parks a callback in `waiters`.
 const bodyCache = new Map();
 let cachedBytes = 0;
-
-const fetchQueue = [];
-let activeFetches = 0;
-let draining = false;
 
 // URL path prefixes to capture — empty means capture all JSON requests.
 // Synced from panel via "sync-config" message.
@@ -162,8 +152,9 @@ function postToPort(port, message) {
   }
 }
 
-// Pull a body into bodyCache. Queued rather than fired immediately so a burst of
-// requests can't flood the DevTools main thread with round trips at once.
+// Pull a body into bodyCache immediately. Deferring getContent() behind a
+// concurrency queue is unsafe: one batch of callbacks that never arrives can
+// leave every later response waiting until DevTools has already discarded it.
 function cacheBody(id, entry) {
   const slot = {
     state: "pending",
@@ -175,97 +166,59 @@ function cacheBody(id, entry) {
 
   bodyCache.set(id, slot);
 
-  enqueueFetch((done) => {
-    let settled = false;
-    let timeoutId = 0;
+  let settled = false;
+  let timeoutId = 0;
 
-    const settle = (result) => {
-      // The deadline below and a late getContent() callback both land here;
-      // settling twice would double-count this body against the byte budget.
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timeoutId);
-
-      Object.assign(slot, result);
-      slot.state = result.reason ? "fail" : "ok";
-
-      // The record may have been trimmed or cleared while this sat in the queue,
-      // in which case it isn't ours to charge against the budget any more.
-      if (slot.state === "ok" && bodyCache.get(id) === slot) {
-        cachedBytes += slot.content.length;
-        evictOverBudget();
-      }
-
-      // Waiters are still served even if the slot was evicted above — whoever is
-      // watching this row wants the body we just fetched.
-      for (const waiter of slot.waiters.splice(0)) {
-        waiter(slot);
-      }
-
-      done();
-    };
-
-    timeoutId = setTimeout(
-      () => settle({ reason: "timeout" }),
-      CONTENT_FETCH_TIMEOUT_MS,
-    );
-
-    try {
-      entry.getContent((content, encoding) => {
-        if (content == null) {
-          settle({ reason: "gone" });
-          return;
-        }
-
-        // Fallback for when the HAR entry reported no usable size up front.
-        if (content.length > MAX_CONTENT_BYTES) {
-          settle({ reason: "oversized" });
-          return;
-        }
-
-        settle({ content, encoding: encoding || "" });
-      });
-    } catch {
-      settle({ reason: "gone" });
+  const settle = (result) => {
+    // The deadline below and a late getContent() callback both land here;
+    // settling twice would double-count this body against the byte budget.
+    if (settled) {
+      return;
     }
-  });
-}
 
-function enqueueFetch(task) {
-  fetchQueue.push(task);
-  drainFetchQueue();
-}
+    settled = true;
+    clearTimeout(timeoutId);
 
-function drainFetchQueue() {
-  // A task that fails synchronously calls done() from inside this loop; the
-  // guard keeps that from re-entering instead of just letting the loop continue.
-  if (draining) {
-    return;
-  }
+    Object.assign(slot, result);
+    slot.state = result.reason ? "fail" : "ok";
 
-  draining = true;
+    // The record may have been trimmed or cleared while the read was in flight,
+    // in which case it isn't ours to charge against the budget any more.
+    if (slot.state === "ok" && bodyCache.get(id) === slot) {
+      cachedBytes += slot.content.length;
+      evictOverBudget();
+    }
 
-  while (activeFetches < MAX_CONCURRENT_FETCHES && fetchQueue.length > 0) {
-    const task = fetchQueue.shift();
-    activeFetches += 1;
+    // Waiters are still served even if the slot was evicted above — whoever is
+    // watching this row wants the body we just fetched.
+    for (const waiter of slot.waiters.splice(0)) {
+      waiter(slot);
+    }
+  };
 
-    let settled = false;
+  timeoutId = setTimeout(
+    () => settle({ reason: "timeout" }),
+    CONTENT_FETCH_TIMEOUT_MS,
+  );
 
-    task(() => {
-      if (settled) {
+  try {
+    entry.getContent((content, encoding) => {
+      if (content == null) {
+        settle({ reason: "gone" });
         return;
       }
 
-      settled = true;
-      activeFetches -= 1;
-      drainFetchQueue();
-    });
-  }
+      // Fallback for when the HAR entry reported no usable size up front.
+      if (content.length > MAX_CONTENT_BYTES) {
+        settle({ reason: "oversized" });
+        return;
+      }
 
-  draining = false;
+      settle({ content, encoding: encoding || "" });
+    });
+  } catch {
+    settle({ reason: "gone" });
+  }
 }
 
 // Oldest first — Map iterates in insertion order, which matches request order.
