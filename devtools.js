@@ -16,23 +16,11 @@ const MAX_REQUESTS = 300;
 // payload would freeze the JSON tree renderer anyway.
 const MAX_CONTENT_BYTES = 5 * 1024 * 1024;
 
-// Ceiling on the total size of cached bodies. Bodies are pulled as soon as a
-// request finishes so DevTools can't evict them out from under us — but that
-// makes us the ones holding them, so the oldest get dropped past this mark.
-const MAX_CACHED_BYTES = 64 * 1024 * 1024;
-
 // getContent() is not guaranteed to call back — DevTools drops the callback for
 // some entries, a navigation clearing the network log mid-flight being the usual
 // one. A deadline ensures a selected row does not sit on "正在加载响应体…"
-// forever. It does not gate later reads: every body must be requested while the
-// onRequestFinished entry still owns it.
+// forever.
 const CONTENT_FETCH_TIMEOUT_MS = 10000;
-
-// Cached bodies, keyed by record id: { state, content, encoding, reason,
-// waiters }. `state` is "pending" until the fetch settles, then "ok" or "fail".
-// A panel that selects a row mid-fetch parks a callback in `waiters`.
-const bodyCache = new Map();
-let cachedBytes = 0;
 
 // URL path prefixes to capture — empty means capture all JSON requests.
 // Synced from panel via "sync-config" message.
@@ -77,20 +65,12 @@ chrome.devtools.network.onRequestFinished.addListener((request) => {
   requests.push(record);
   harEntries.set(record.id, request);
 
-  // Grab the body now rather than when the row is clicked. DevTools drops its
-  // own copy on navigation and under memory pressure, and the gap between a
-  // request finishing and the user selecting it is exactly where that happened.
-  if (!record.oversized) {
-    cacheBody(record.id, request);
-  }
-
   // Drop the oldest records once we're over the cap so memory stays flat.
   if (requests.length > MAX_REQUESTS) {
     const dropped = requests.splice(0, requests.length - MAX_REQUESTS);
 
     for (const item of dropped) {
       harEntries.delete(item.id);
-      dropCachedBody(item.id);
     }
   }
 
@@ -116,8 +96,6 @@ chrome.runtime.onConnect.addListener((port) => {
     if (message.type === "clear-requests") {
       requests.length = 0;
       harEntries.clear();
-      bodyCache.clear();
-      cachedBytes = 0;
 
       notifyPanels({
         type: "requests-cleared",
@@ -152,167 +130,71 @@ function postToPort(port, message) {
   }
 }
 
-// Pull a body into bodyCache immediately. Deferring getContent() behind a
-// concurrency queue is unsafe: one batch of callbacks that never arrives can
-// leave every later response waiting until DevTools has already discarded it.
-function cacheBody(id, entry) {
-  const slot = {
-    state: "pending",
-    content: "",
-    encoding: "",
-    reason: "",
-    waiters: [],
-  };
-
-  bodyCache.set(id, slot);
-
-  let settled = false;
-  let timeoutId = 0;
-
-  const settle = (result) => {
-    // The deadline below and a late getContent() callback both land here;
-    // settling twice would double-count this body against the byte budget.
-    if (settled) {
-      return;
-    }
-
-    settled = true;
-    clearTimeout(timeoutId);
-
-    Object.assign(slot, result);
-    slot.state = result.reason ? "fail" : "ok";
-
-    // The record may have been trimmed or cleared while the read was in flight,
-    // in which case it isn't ours to charge against the budget any more.
-    if (slot.state === "ok" && bodyCache.get(id) === slot) {
-      cachedBytes += slot.content.length;
-      evictOverBudget();
-    }
-
-    // Waiters are still served even if the slot was evicted above — whoever is
-    // watching this row wants the body we just fetched.
-    for (const waiter of slot.waiters.splice(0)) {
-      waiter(slot);
-    }
-  };
-
-  timeoutId = setTimeout(
-    () => settle({ reason: "timeout" }),
-    CONTENT_FETCH_TIMEOUT_MS,
-  );
-
-  try {
-    entry.getContent((content, encoding) => {
-      if (content == null) {
-        settle({ reason: "gone" });
-        return;
-      }
-
-      // Fallback for when the HAR entry reported no usable size up front.
-      if (content.length > MAX_CONTENT_BYTES) {
-        settle({ reason: "oversized" });
-        return;
-      }
-
-      settle({ content, encoding: encoding || "" });
-    });
-  } catch {
-    settle({ reason: "gone" });
-  }
-}
-
-// Oldest first — Map iterates in insertion order, which matches request order.
-function evictOverBudget() {
-  for (const [id, slot] of bodyCache) {
-    if (cachedBytes <= MAX_CACHED_BYTES) {
-      return;
-    }
-
-    if (slot.state === "ok") {
-      dropCachedBody(id);
-    }
-  }
-}
-
-function dropCachedBody(id) {
-  const slot = bodyCache.get(id);
-
-  if (!slot) {
-    return;
-  }
-
-  if (slot.state === "ok") {
-    cachedBytes -= slot.content.length;
-  }
-
-  bodyCache.delete(id);
-}
-
-// Serve a body to the panel. Normally this is a cache hit — the fetch was
-// started when the request finished. A miss (dropped for the byte budget) or a
-// failed prefetch both fall back to asking DevTools again, from the HAR entry we
-// still hold.
+// Read a body only when the panel asks for it. Response text is sent straight to
+// the panel and is never retained by this DevTools page.
 function sendContent(port, id) {
-  const fail = (reason) =>
-    postToPort(port, { type: "request-content", id, ok: false, reason });
+  const record = requests.find((item) => item.id === id);
 
-  const deliver = (slot) => {
-    if (slot.state !== "ok") {
-      fail(slot.reason || "gone");
-      return;
-    }
-
+  if (record?.oversized) {
     postToPort(port, {
       type: "request-content",
       id,
-      ok: true,
-      content: slot.content,
-      encoding: slot.encoding,
+      ok: false,
+      reason: "oversized",
     });
-  };
-
-  if (requests.find((item) => item.id === id)?.oversized) {
-    fail("oversized");
-    return;
-  }
-
-  const cached = bodyCache.get(id);
-
-  if (cached?.state === "pending") {
-    cached.waiters.push(deliver);
-    return;
-  }
-
-  if (cached?.state === "ok") {
-    deliver(cached);
     return;
   }
 
   const entry = harEntries.get(id);
 
   if (!entry) {
-    fail(cached?.reason || "gone");
+    postToPort(port, {
+      type: "request-content",
+      id,
+      ok: false,
+      reason: "gone",
+    });
     return;
   }
 
-  // Nothing usable cached: either evicted for the byte budget, or the prefetch
-  // failed. Retry rather than serving the stale failure — the prefetch fires the
-  // instant the request finishes, which is exactly when DevTools is least likely
-  // to hand the body over. Asking now, with the row actually selected, is the
-  // timing the old lazy path had, and it usually succeeds.
-  if (cached) {
-    dropCachedBody(id);
-  }
+  let settled = false;
+  let timeoutId = 0;
 
-  cacheBody(id, entry);
+  const settle = (result) => {
+    if (settled) {
+      return;
+    }
 
-  // Re-read the slot: a throw inside getContent settles it before we get here.
-  const started = bodyCache.get(id);
+    settled = true;
+    clearTimeout(timeoutId);
+    postToPort(port, { type: "request-content", id, ...result });
+  };
 
-  if (started.state === "pending") {
-    started.waiters.push(deliver);
-  } else {
-    deliver(started);
+  timeoutId = setTimeout(
+    () => settle({ ok: false, reason: "timeout" }),
+    CONTENT_FETCH_TIMEOUT_MS,
+  );
+
+  try {
+    entry.getContent((content, encoding) => {
+      if (content == null) {
+        settle({ ok: false, reason: "gone" });
+        return;
+      }
+
+      if (content.length > MAX_CONTENT_BYTES) {
+        settle({ ok: false, reason: "oversized" });
+        return;
+      }
+
+      settle({
+        ok: true,
+        content,
+        encoding: encoding || "",
+      });
+    });
+  } catch {
+    settle({ ok: false, reason: "gone" });
   }
 }
 

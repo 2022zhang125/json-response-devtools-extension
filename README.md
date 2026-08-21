@@ -223,6 +223,7 @@ $zip.Dispose()
 - **图标必须使用 `icons/` 下对应尺寸的文件。** 早期版本在 16/48/128 三个位置都填了同一张
   1024×1024（1.3 MB）大图，浏览器启动时要反复解码。
 - **请求历史有上限**：`devtools.js` 与 `panel.js` 各自的 `MAX_REQUESTS`（300）必须保持一致，
-  超过 5 MB 的响应体会被跳过（`MAX_CONTENT_BYTES`）。
+  超过 5 MB 的响应体会被跳过（`MAX_CONTENT_BYTES`）。响应正文不在扩展内缓存，只在用户选中
+  请求时从 DevTools 读取并展示；重新选中会重新读取。
 - **JSON 树的复制用事件委托**（`markCopyable()` + `setupCopyDelegation()`）。不要给每个节点
   单独 `addEventListener("dblclick")`——一个 160 KB 的响应会产生两万多个节点。
